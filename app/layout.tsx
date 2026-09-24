@@ -32,7 +32,8 @@ export default function RootLayout({
       <head>
         <link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials" />
         <meta name="theme-color" content="#f8f7f2" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/icon-512.png" />
+        <link rel="apple-touch-icon" href="/icon-512.png" />
         <link rel="icon" href="/icon-192.png" type="image/png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="float" />
