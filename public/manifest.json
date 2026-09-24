@@ -10,8 +10,8 @@
         "fullscreen",
         "standalone"
     ],
-    "background_color": "#000000",
-    "theme_color": "#000000",
+    "background_color": "#f8f7f2",
+    "theme_color": "#f8f7f2",
     "orientation": "portrait",
     "categories": [
         "entertainment",
