@@ -211,6 +211,90 @@ function normalizeVoiceConfigs(configs: VoiceApiConfig[]): VoiceApiConfig[] {
         });
 }
 
+// ── 拉取已克隆音色 ─────────────────────────────────────
+// 和 TTS / 声音克隆保持一致：优先浏览器直连 MiniMax。服务端转发（/api/voice/minimax-voices）
+// 在 Netlify 上受函数出网区域与超时限制，还会把上游错误吞成光秃秃的状态码；直连既能通，
+// 又能把 MiniMax 的原话透出来。只有在直连被网络层拦下（CORS / 离线）时才退回服务端。
+class MinimaxApiError extends Error {}
+
+function minimaxBaseRespMessage(payload: unknown): string | null {
+    const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+    const baseResp = root.base_resp && typeof root.base_resp === "object" ? root.base_resp as Record<string, unknown> : {};
+    const code = baseResp.status_code ?? root.status_code;
+    const message = String(baseResp.status_msg || root.status_msg || "");
+    if (typeof code === "number" && code !== 0) return message || `status_code=${code}`;
+    if (typeof code === "string" && code && code !== "0") return message || `status_code=${code}`;
+    return null;
+}
+
+function extractMinimaxClonedVoices(payload: unknown): VoiceOption[] {
+    const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+    const data = root.data && typeof root.data === "object" ? root.data as Record<string, unknown> : {};
+    const source = Array.isArray(root.voice_cloning)
+        ? root.voice_cloning
+        : Array.isArray(data.voice_cloning) ? data.voice_cloning : [];
+    return source.flatMap(item => {
+        const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
+        const rawId = record.voice_id ?? record.voiceId ?? record.id;
+        if (typeof rawId !== "string" || !rawId.trim()) return [];
+        const id = rawId.trim();
+        const description = typeof record.description === "string" ? record.description.trim() : "";
+        const createdTime = record.created_time;
+        return [{
+            id,
+            name: description || `克隆音色 (${id})`,
+            createdAt: typeof createdTime === "number" ? createdTime : undefined,
+        }];
+    });
+}
+
+async function requestMinimaxVoicesDirect(config: VoiceApiConfig): Promise<VoiceOption[]> {
+    const base = (config.baseUrl || DEFAULT_MINIMAX_BASE_URL).replace(/\/$/, "");
+    const response = await fetch(`${base}/get_voice`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${config.apiKey.trim()}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ voice_type: "voice_cloning" }),
+    });
+    const text = await response.text();
+    let payload: unknown = null;
+    try { payload = JSON.parse(text); } catch { payload = null; }
+    const upstreamError = minimaxBaseRespMessage(payload);
+    if (upstreamError) throw new MinimaxApiError(upstreamError);
+    if (!response.ok) {
+        throw new MinimaxApiError(`MiniMax 请求失败 (${response.status})${text ? `：${text.slice(0, 200)}` : ""}`);
+    }
+    return extractMinimaxClonedVoices(payload);
+}
+
+async function requestMinimaxVoicesViaServer(config: VoiceApiConfig): Promise<VoiceOption[]> {
+    const response = await fetch("/api/voice/minimax-voices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            apiKey: config.apiKey,
+            baseUrl: config.baseUrl || DEFAULT_MINIMAX_BASE_URL,
+        }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.message || data.error || `同步失败 (${response.status})`);
+    }
+    return Array.isArray(data.voices) ? data.voices as VoiceOption[] : [];
+}
+
+async function fetchMinimaxClonedVoices(config: VoiceApiConfig): Promise<VoiceOption[]> {
+    try {
+        return await requestMinimaxVoicesDirect(config);
+    } catch (error) {
+        // MiniMax 明确回话（key 无效、权限不足、地区不符）就原样抛出，不再绕服务端掩盖真相
+        if (error instanceof MinimaxApiError) throw error;
+        return await requestMinimaxVoicesViaServer(config);
+    }
+}
+
 function makeCloneVoiceId(config: VoiceApiConfig): string {
     const seed = (config.name || config.defaultVoice || "voice")
         .toLowerCase()
@@ -480,19 +564,7 @@ export function VoiceSettings() {
                     setFetchError(prev => ({ ...prev, [config.id]: "填写 API Key 后可同步账户已克隆音色" }));
                     return;
                 }
-                const response = await fetch("/api/voice/minimax-voices", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        apiKey: config.apiKey,
-                        baseUrl: config.baseUrl || DEFAULT_MINIMAX_BASE_URL,
-                    }),
-                });
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) {
-                    throw new Error(data.message || data.error || `同步失败 (${response.status})`);
-                }
-                const clonedVoices = Array.isArray(data.voices) ? data.voices as VoiceOption[] : [];
+                const clonedVoices = await fetchMinimaxClonedVoices(config);
                 const nextCustomVoices = uniqueOptions([...clonedVoices, ...(config.customVoices || [])]);
                 updateConfig(config.id, { customVoices: nextCustomVoices });
                 setFetchedVoices(prev => ({ ...prev, [config.id]: nextCustomVoices }));
