@@ -1,4 +1,4 @@
-// 小手机聊天插件 · 海螺视频 v1.0.2
+// 小手机聊天插件 · 海螺视频 v1.0.3
 // 用途：让角色在聊天里发一段真实生成的短视频（MiniMax 海螺视频 API）。
 // 安装：聊天设置 → 扩展插件 → 导入插件 → 选择本文件。
 // 注意：本插件与小手机宿主同环境执行（无沙箱），请只安装信任来源的插件。
@@ -16,13 +16,15 @@
 //   dailyLimit    每天最多主动发几条（0 = 关闭主动发）
 //   minInterval   两条之间最少间隔分钟
 //   allowManual   长按消息可手动生成
+//   rewriteManual 手动触发时先用 AI 把消息转写成画面描述（治"画面莫名其妙"）
+//   styleSuffix   固定拼在提示词末尾的风格词
 
 export default {
   manifest: {
     id: "hailuo-video",
     name: "海螺视频",
     apiVersion: 1,
-    version: "1.0.2",
+    version: "1.0.3",
     author: "小坊",
     description: "让角色在聊天里发一段真实生成的短视频（MiniMax 海螺）。可限制发送频率、时长与清晰度。",
     permissions: ["chat.read", "chat.write", "ai", "network", "ui", "storage"],
@@ -46,7 +48,7 @@ export default {
       ] },
       { key: "refSource", label: "人物参考图", type: "select", default: "none", options: [
         { value: "none", label: "不用（纯文字生成）" },
-        { value: "avatar", label: "用当前角色头像（需公网链接）" },
+        { value: "avatar", label: "用当前角色头像（本地头像即可，无需图床）" },
         { value: "custom", label: "自定义链接 / data URL" }
       ] },
       { key: "refUrl", label: "自定义参考图链接（填完请点空白处保存）", type: "text", default: "" },
@@ -54,7 +56,9 @@ export default {
       { key: "allowGroup", label: "群聊里也允许主动发", type: "boolean", default: false },
       { key: "dailyLimit", label: "每天最多主动发（条，0 = 关闭主动发）", type: "number", default: 3 },
       { key: "minInterval", label: "两条之间最少间隔（分钟）", type: "number", default: 30 },
-      { key: "allowManual", label: "长按消息可手动生成", type: "boolean", default: true }
+      { key: "allowManual", label: "长按消息可手动生成", type: "boolean", default: true },
+      { key: "rewriteManual", label: "手动触发时先用 AI 转写画面描述（推荐开）", type: "boolean", default: true },
+      { key: "styleSuffix", label: "风格后缀（拼在提示词末尾，可留空）", type: "text", default: "电影感画质，柔和体积光，自然光，细节清晰" }
     ]
   },
 
@@ -146,9 +150,17 @@ export default {
       return "";
     }
 
+    function withStyle(text) {
+      var style = String(S("styleSuffix") || "").trim();
+      var base = String(text || "").trim();
+      if (!style) return base;
+      return base ? (base + "，" + style) : style;
+    }
+
     function buildBody(desc, characterId) {
       var ref = resolveRef(characterId);
-      var body = { model: S("model") || "MiniMax-Hailuo-2.3", prompt: desc, prompt_optimizer: true };
+      var finalPrompt = withStyle(desc);
+      var body = { model: S("model") || "MiniMax-Hailuo-2.3", prompt: finalPrompt, prompt_optimizer: true };
       if (ref) {
         body.model = "S2V-01";
         body.subject_reference = [{ type: "character", image: [ref] }];
@@ -156,7 +168,32 @@ export default {
         body.duration = Number(S("duration")) || 6;
         body.resolution = S("resolution") || "768P";
       }
-      return { body: body, refUsed: !!ref };
+      return { body: body, refUsed: !!ref, finalPrompt: finalPrompt };
+    }
+
+    // 把聊天内容转写成合格的画面描述——直接拿对话原文当提示词是"画面莫名其妙"的根因。
+    // 转写失败就退回原文，不影响主流程。
+    function rewriteDescription(rawText, characterId) {
+      if (S("rewriteManual") === false) return Promise.resolve(rawText);
+      var characterName = "";
+      try {
+        var c = characterId ? ctx.data.characters.get(characterId) : null;
+        characterName = (c && c.name) || "";
+      } catch (e) { /* 无所谓 */ }
+      var sys = "你是短视频分镜师。把用户给的聊天内容改写成一句可直接用于文生视频的画面描述：只描述画面（主体、外貌、动作、环境、光线、氛围、景别），不要对白、不要引号、不要解释、不要分点，60 字以内。";
+      var prompt = (characterName ? "角色名：" + characterName + "\n" : "") + "聊天内容：\n" + rawText;
+      return ctx.ai.chat({ prompt: prompt, system: sys, temperature: 0.7, maxTokens: 300 })
+        .then(function (text) {
+          var t = String(text || "").replace(/["“”]/g, "").trim();
+          var line = t.split("\n").filter(function (l) { return l.trim(); })[0] || "";
+          line = line.replace(/^[-\d.、\s]+/, "").slice(0, 200).trim();
+          log("转写结果", line || "(空，用原文)");
+          return line || rawText;
+        })
+        .catch(function (e) {
+          log("转写失败，改用原文", (e && e.message) || e);
+          return rawText;
+        });
     }
 
     // ── 写消息（push 是同步的，直接拿返回值）──
@@ -313,9 +350,15 @@ export default {
       box.style.cssText = "max-width:min(280px,100%);font-size:12px;";
 
       var head = document.createElement("div");
-      head.style.cssText = "opacity:.7;margin-bottom:6px;word-break:break-word;";
+      head.style.cssText = "opacity:.7;margin-bottom:4px;word-break:break-word;";
       head.textContent = "🎬 " + (d.prompt || "视频");
       box.appendChild(head);
+
+      // 把"实际用了什么"摊开显示：判断"不像"时，先看参考图到底有没有被用上
+      var refLine = document.createElement("div");
+      refLine.style.cssText = "opacity:.5;margin-bottom:6px;";
+      refLine.textContent = "参考图：" + (d.refUsed ? "已使用" : "未使用") + " · 模型：" + (d.model || "?");
+      box.appendChild(refLine);
 
       function mkBtn(text, fn, extra) {
         var b = document.createElement("button");
@@ -438,7 +481,7 @@ export default {
         onSelect: function (msg, helpers) {
           var text = String(msg.content || "").replace(/\[[^\]]*\]/g, " ").trim().slice(0, 300);
           if (!text) { helpers.toast("这条消息没有可用内容"); return; }
-          helpers.toast("已提交，生成中…");
+          helpers.toast("正在整理画面描述…");
           var characterId = "";
           try {
             var s = ctx.data.sessions.get(msg.sessionId);
@@ -449,12 +492,12 @@ export default {
               }
             }
           } catch (e) {}
-          try {
-            submit({ sessionId: msg.sessionId, prompt: text, characterId: characterId, role: "assistant" }, null)
-              .catch(function (e) { failBubble(msg.sessionId, text, (e && e.message) || e); });
-          } catch (e) {
+          rewriteDescription(text, characterId).then(function (desc) {
+            helpers.toast("已提交，生成中…");
+            return submit({ sessionId: msg.sessionId, prompt: desc, characterId: characterId, role: "assistant" }, null);
+          }).catch(function (e) {
             failBubble(msg.sessionId, text, (e && e.message) || e);
-          }
+          });
         }
       });
     }
