@@ -6,6 +6,7 @@ import { storeMediaBlob } from "./media-cache-storage";
 import { throwIfAborted } from "./abort-utils";
 import {
   NOVELAI_COMMON_MODELS,
+  buildNovelAiParameters,
   getNovelAiResolution,
   normalizeNovelAiModel,
   normalizeNovelAiNoiseSchedule,
@@ -526,30 +527,26 @@ async function generateNovelAiDirect(params: {
     "Content-Type": "application/json",
   };
 
+  // V3 家族沿用旧参数结构，V4 / V4.5 家族改用 v4_prompt 结构（见 buildNovelAiParameters）。
+  const model = normalizeNovelAiModel(preset.model);
   const body = JSON.stringify({
     input: prompt,
-    model: normalizeNovelAiModel(preset.model),
+    model,
     action: "generate",
-    parameters: {
+    parameters: buildNovelAiParameters({
+      model,
+      prompt,
+      negativePrompt: preset.negativePrompt || "",
       width,
       height,
-      scale: normalizeNovelAiScale(preset.scale),
-      sampler: normalizeNovelAiSampler(preset.sampler),
-      steps: normalizeNovelAiSteps(preset.steps),
-      n_samples: 1,
-      ucPreset: 0,
-      qualityToggle: preset.qualityToggle !== false,
-      sm: preset.smea === true,
-      sm_dyn: preset.smeaDyn === true,
-      dynamic_thresholding: false,
-      controlnet_strength: 1,
-      legacy: false,
-      add_original_image: false,
-      uncond_scale: 1,
-      cfg_rescale: 0,
-      noise_schedule: normalizeNovelAiNoiseSchedule(preset.noiseSchedule),
-      negative_prompt: preset.negativePrompt || "",
-    },
+      scale: preset.scale,
+      sampler: preset.sampler,
+      steps: preset.steps,
+      noiseSchedule: preset.noiseSchedule,
+      qualityToggle: preset.qualityToggle,
+      smea: preset.smea,
+      smeaDyn: preset.smeaDyn,
+    }),
   });
 
   const controller = new AbortController();

@@ -105,3 +105,81 @@ export function normalizeNovelAiScale(value: unknown): number {
     ? Math.max(1, Math.min(30, Number(value.toFixed(1))))
     : NOVELAI_DEFAULT_SCALE;
 }
+
+// --- 请求参数组装（V3 / V4 两套结构分流）---
+//
+// NovelAI V4 起提示词不再是一根字符串：参数里必须同时带上 v4_prompt /
+// v4_negative_prompt 两套 caption 结构（各自含 base_caption 与 char_captions），
+// SMEA 也由 sm/sm_dyn 换成 autoSmea。只发旧结构时上游会对 V4 家族直接返回
+// 500 Internal Server Error（V3 家族照常出图），所以这里按模型族分流。
+// 客户端直连与服务端转发共用这一份，避免两条链路再次走偏。
+const NOVELAI_V4_FAMILY_PATTERN = /diffusion-4(?:-|$)/;
+
+/** 该模型是否属于 V4 / V4.5 家族（需要 v4_prompt 结构）。V3 家族与未知模型返回 false。 */
+export function usesNovelAiV4PromptStructure(model: unknown): boolean {
+  const normalized = typeof model === "string" ? model.trim().toLowerCase() : "";
+  return NOVELAI_V4_FAMILY_PATTERN.test(normalized);
+}
+
+export type NovelAiParameterInput = {
+  model: string;
+  prompt: string;
+  negativePrompt?: string;
+  width: number;
+  height: number;
+  scale?: number;
+  sampler?: string;
+  steps?: number;
+  noiseSchedule?: string;
+  qualityToggle?: boolean;
+  smea?: boolean;
+  smeaDyn?: boolean;
+};
+
+/** 组装 NovelAI /ai/generate-image 的 parameters 字段。 */
+export function buildNovelAiParameters(input: NovelAiParameterInput): Record<string, unknown> {
+  const negativePrompt = input.negativePrompt ?? "";
+  const common: Record<string, unknown> = {
+    width: input.width,
+    height: input.height,
+    scale: normalizeNovelAiScale(input.scale),
+    sampler: normalizeNovelAiSampler(input.sampler),
+    steps: normalizeNovelAiSteps(input.steps),
+    n_samples: 1,
+    ucPreset: 0,
+    qualityToggle: input.qualityToggle !== false,
+    dynamic_thresholding: false,
+    controlnet_strength: 1,
+    legacy: false,
+    add_original_image: false,
+    cfg_rescale: 0,
+    noise_schedule: normalizeNovelAiNoiseSchedule(input.noiseSchedule),
+    negative_prompt: negativePrompt,
+  };
+
+  if (!usesNovelAiV4PromptStructure(input.model)) {
+    return {
+      ...common,
+      sm: input.smea === true,
+      sm_dyn: input.smeaDyn === true,
+      uncond_scale: 1,
+    };
+  }
+
+  return {
+    ...common,
+    params_version: 3,
+    autoSmea: false,
+    legacy_v3_extend: false,
+    use_coords: false,
+    image_format: "png",
+    v4_prompt: {
+      caption: { base_caption: input.prompt, char_captions: [] },
+      use_coords: false,
+      use_order: true,
+    },
+    v4_negative_prompt: {
+      caption: { base_caption: negativePrompt, char_captions: [] },
+    },
+  };
+}
