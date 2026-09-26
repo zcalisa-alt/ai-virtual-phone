@@ -3,15 +3,12 @@ import { ProxyAgent, type Dispatcher } from "undici";
 import JSZip from "jszip";
 import {
   NOVELAI_DEFAULT_MODEL,
+  buildNovelAiParameters,
   getNovelAiResolution,
   isNovelAiNoiseSchedule,
   isNovelAiResolution,
   isNovelAiSampler,
   isValidNovelAiModel,
-  normalizeNovelAiNoiseSchedule,
-  normalizeNovelAiSampler,
-  normalizeNovelAiScale,
-  normalizeNovelAiSteps,
 } from "@/lib/novelai-image-config";
 
 export const maxDuration = 120;
@@ -216,26 +213,22 @@ async function runNovelAiGeneration(input: ImageGenerationRequest): Promise<{ st
       Referer: "https://novelai.net/",
     };
 
-    const parameters: Record<string, unknown> = {
+    // V4 / V4.5 家族需要 v4_prompt / v4_negative_prompt + params_version，
+    // V3 家族沿用旧结构；分流逻辑与客户端直连共用 buildNovelAiParameters。
+    const parameters = buildNovelAiParameters({
+      model,
+      prompt,
+      negativePrompt: input.negativePrompt || "",
       width,
       height,
-      scale: normalizeNovelAiScale(input.scale),
-      sampler: normalizeNovelAiSampler(input.sampler),
-      steps: normalizeNovelAiSteps(input.steps),
-      n_samples: 1,
-      ucPreset: 0,
-      qualityToggle: input.qualityToggle !== false,
-      sm: input.smea === true,
-      sm_dyn: input.smeaDyn === true,
-      dynamic_thresholding: false,
-      controlnet_strength: 1,
-      legacy: false,
-      add_original_image: false,
-      uncond_scale: 1,
-      cfg_rescale: 0,
-      noise_schedule: normalizeNovelAiNoiseSchedule(input.noiseSchedule),
-      negative_prompt: input.negativePrompt || "",
-    };
+      scale: input.scale,
+      sampler: input.sampler,
+      steps: input.steps,
+      noiseSchedule: input.noiseSchedule,
+      qualityToggle: input.qualityToggle,
+      smea: input.smea,
+      smeaDyn: input.smeaDyn,
+    });
 
     const body = JSON.stringify({
       input: prompt,

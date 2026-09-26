@@ -604,6 +604,9 @@ export function ImageGenerationSettings() {
                                 <span className="text-xs font-medium">启用 SMEA</span>
                             </label>
                         </div>
+                        <span className="menu-desc ml-1 opacity-70">
+                            V4 / V4.5 模型已取消 SMEA，该开关仅对 V3 模型生效（V4 系固定按关闭发送）。
+                        </span>
                     </>
                 ) : (
                     /* --- OpenAI 模式配置面板 --- */
