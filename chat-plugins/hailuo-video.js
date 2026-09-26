@@ -1,4 +1,4 @@
-// 小手机聊天插件 · 海螺视频 v1.0.1
+// 小手机聊天插件 · 海螺视频 v1.0.2
 // 用途：让角色在聊天里发一段真实生成的短视频（MiniMax 海螺视频 API）。
 // 安装：聊天设置 → 扩展插件 → 导入插件 → 选择本文件。
 // 注意：本插件与小手机宿主同环境执行（无沙箱），请只安装信任来源的插件。
@@ -22,7 +22,7 @@ export default {
     id: "hailuo-video",
     name: "海螺视频",
     apiVersion: 1,
-    version: "1.0.1",
+    version: "1.0.2",
     author: "小坊",
     description: "让角色在聊天里发一段真实生成的短视频（MiniMax 海螺）。可限制发送频率、时长与清晰度。",
     permissions: ["chat.read", "chat.write", "ai", "network", "ui", "storage"],
@@ -63,6 +63,7 @@ export default {
     var MARK = /\[视频[:：]([^\]\n]{1,300})\]/;
     var inflight = {};
     var recs = {};
+    var sids = {};
 
     function S(k) { try { return ctx.system.settings.get(k); } catch (e) { return null; } }
     function log() { try { ctx.system.log.apply(null, ["[海螺视频]"].concat([].slice.call(arguments))); } catch (e) {} }
@@ -167,8 +168,37 @@ export default {
         mediaType: "plugin:" + KIND,
         mediaData: mediaData
       });
-      if (msg && msg.id) recs[msg.id] = mediaData;
+      if (msg && msg.id) { recs[msg.id] = mediaData; sids[msg.id] = sessionId; }
       return msg;
+    }
+
+    function statusLabel(raw) {
+      var k = String(raw || "").toLowerCase();
+      var map = { preparing: "准备中", queueing: "排队中", processing: "生成中", pending: "准备中", success: "已完成", fail: "失败", failed: "失败" };
+      return map[k] || (raw ? String(raw) : "准备中");
+    }
+
+    function isFinalStatus(raw) {
+      var k = String(raw || "").toLowerCase();
+      return k === "success" || k === "fail" || k === "failed";
+    }
+
+    function progressLine(cur) {
+      if (cur.status === "Success") return "[视频] " + (cur.prompt || "");
+      if (cur.status === "Fail") return "[视频失败] " + (cur.errorMsg || "生成失败");
+      var secs = cur.startedAt ? Math.floor((Date.now() - cur.startedAt) / 1000) : 0;
+      var mm = Math.floor(secs / 60);
+      var ss = secs % 60;
+      return "[视频] " + statusLabel(cur.status) + " " + mm + ":" + (ss < 10 ? "0" : "") + ss + " · " + (cur.prompt || "");
+    }
+
+    function notifyUpdate(id) {
+      try {
+        if (typeof window === "undefined") return;
+        var sid = sids[id];
+        if (!sid) return;
+        window.dispatchEvent(new CustomEvent("chat-messages-updated", { detail: { sessionId: sid, message: { id: id } } }));
+      } catch (e) { /* 派发失败不影响主流程 */ }
     }
 
     function patch(id, patchObj) {
@@ -176,7 +206,13 @@ export default {
       var ks = Object.keys(patchObj);
       for (var i = 0; i < ks.length; i++) cur[ks[i]] = patchObj[ks[i]];
       recs[id] = cur;
-      try { ctx.data.messages.update(id, { mediaData: cur }); } catch (e) { log("更新消息失败", (e && e.message) || e); }
+      // 关键：宿主的 updateChatMessage 只写库、不通知界面重绘（它仅派发插件事件），
+      // 而气泡重渲染的判据里含 content 变动 —— 所以改 mediaData 时一并改 content，
+      // 否则气泡会永远停在最初那一帧（曾出现"卡在准备中"）。
+      try {
+        ctx.data.messages.update(id, { mediaData: cur, content: progressLine(cur) });
+      } catch (e) { log("更新消息失败", (e && e.message) || e); }
+      notifyUpdate(id);
       return cur;
     }
 
@@ -210,19 +246,20 @@ export default {
       if (!cur.taskId) return Promise.resolve();
       return api("/v1/query/video_generation", { query: { task_id: cur.taskId } }).then(function (data) {
         var st = (data && data.status) || "Processing";
-        if (st === "Success") {
+        var key = String(st).toLowerCase();
+        if (key === "success") {
           patch(id, { status: "Success", fileId: data.file_id || "" });
           return fetchUrl(id, null, data.file_id || "");
         }
-        if (st === "Fail") { patch(id, { status: "Fail", errorMsg: "生成失败，换个描述再试" }); return; }
-        patch(id, { status: st });
+        if (key === "fail" || key === "failed") { patch(id, { status: "Fail", errorMsg: "生成失败，换个描述再试" }); return; }
+        patch(id, { status: String(st) });
       }, function (e) {
         var c = e && e.code;
         if (c === 1026 || c === 1027 || c === 1008 || c === 1004 || c === 2049) {
           patch(id, { status: "Fail", errorMsg: (e && e.message) || "生成失败" });
           stopPoll(id);
         } else {
-          patch(id, { hint: "查询暂时失败，会自动重试" });
+          patch(id, { hint: "查询暂时失败，会自动重试：" + ((e && e.message) || e) });
         }
       });
     }
@@ -233,7 +270,7 @@ export default {
       var timer = ctx.system.timers.setInterval(function () {
         var cur = rec(id);
         if (!cur.taskId) { stopPoll(id); return; }
-        if (cur.status === "Success" || cur.status === "Fail") { stopPoll(id); return; }
+        if (isFinalStatus(cur.status)) { stopPoll(id); return; }
         if (Date.now() - startedAt > 30 * 60000) {
           patch(id, { hint: "等待超过 30 分钟，已暂停查询（可点「刷新链接」继续）" });
           stopPoll(id);
@@ -255,7 +292,7 @@ export default {
         if (!taskId) throw new Error("接口没有返回 task_id");
         var mediaData = {
           status: "Preparing", taskId: taskId, prompt: desc, model: built.body.model,
-          refUsed: built.refUsed, videoUrl: "", fileId: "", errorMsg: "", hint: "",
+          refUsed: built.refUsed, videoUrl: "", fileId: "", errorMsg: "", hint: "", startedAt: Date.now(),
           createdAt: new Date().toISOString()
         };
         var msg = pushBubble(opt.sessionId, opt.role || "assistant", "[视频] " + desc, mediaData);
@@ -314,10 +351,18 @@ export default {
             .catch(function (e) { ctx.ui.toast("重试失败：" + ((e && e.message) || e)); });
         }));
       } else {
+        var d2 = recs[id] || d;
         var st = document.createElement("div");
-        st.textContent = "正在生成：" + (STATUS[d.status] || "准备中") + "…";
+        st.textContent = "正在生成：" + statusLabel(d2.status) + "…";
         st.style.cssText = "line-height:1.6;";
         box.appendChild(st);
+        var meta = document.createElement("div");
+        meta.style.cssText = "opacity:.55;margin-top:3px;line-height:1.5;";
+        var secs = d2.startedAt ? Math.floor((Date.now() - d2.startedAt) / 1000) : 0;
+        var mm = Math.floor(secs / 60), ss = secs % 60;
+        meta.textContent = "已等 " + mm + ":" + (ss < 10 ? "0" : "") + ss + " · 接口状态：" + (d2.status || "?");
+        box.appendChild(meta);
+        box.appendChild(mkBtn("立即查询", function () { pollOnce(id); ctx.ui.toast("已查询一次"); }));
         var bar = document.createElement("div");
         bar.style.cssText = "height:4px;border-radius:9px;background:rgba(128,128,128,.25);overflow:hidden;margin-top:6px;";
         var inn = document.createElement("div");
