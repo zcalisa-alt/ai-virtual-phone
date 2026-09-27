@@ -437,8 +437,34 @@ export function debugMessagesFromRequest(request: LlmRequestPayload): LlmDebugMe
     });
 }
 
+function normalizeOpenAIImageUrl(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+
+    const dataUrl = trimmed.match(/^data:image\/(jpeg|png|webp|gif);base64,(.*)$/is);
+    if (!dataUrl) return null;
+    const payload = dataUrl[2].replace(/\s+/g, "");
+    if (!payload) return null;
+    return `data:image/${dataUrl[1].toLowerCase()};base64,${payload}`;
+}
+
 function openAIContent(content: string | LLMContentPart[]): string | LLMContentPart[] {
-    return content;
+    if (typeof content === "string") return content;
+
+    const normalized = content.flatMap<LLMContentPart>((part) => {
+        if (part.type === "text") return part.text ? [part] : [];
+        const url = normalizeOpenAIImageUrl(part.image_url.url);
+        if (!url) return [];
+        return [{ ...part, image_url: { ...part.image_url, url } }];
+    });
+
+    if (normalized.some((part) => part.type === "image_url")) return normalized;
+    return normalized
+        .filter((part): part is Extract<LLMContentPart, { type: "text" }> => part.type === "text")
+        .map((part) => part.text)
+        .filter(Boolean)
+        .join("\n");
 }
 
 function parseDataUrl(url: string): { mimeType: string; data: string } | null {

@@ -356,7 +356,10 @@ async function requestQaCompletion(
     } catch (streamError) {
         if (options?.signal?.aborted) throw streamError;
         await options?.callbacks?.onStreamFallback?.(formatQaErrorMessage(streamError));
-        const request = buildProviderRequest(apiConfig, null, messages, { maxTokens });
+        const fallbackMessages = isUnsupportedImageError(streamError)
+            ? omitImagesFromMessages(messages)
+            : messages;
+        const request = buildProviderRequest(apiConfig, null, fallbackMessages, { maxTokens });
         const response = await fetchLlmPayload(request, { signal: options?.signal });
         if (!response.ok) throw new Error(`API ${response.status}: ${await response.text()}`);
         const parsed = parseProviderResponse(request.providerKind, await response.json());
@@ -479,13 +482,46 @@ export type QaContextEntry = {
 };
 
 /** user 条目内容：先拼接文本附件；带图片时再转多模态 parts。 */
+function normalizeQaImageUrl(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+
+    const dataUrl = trimmed.match(/^data:image\/(jpeg|png|webp|gif);base64,(.*)$/is);
+    if (!dataUrl) return null;
+    const payload = dataUrl[2].replace(/\s+/g, "");
+    if (!payload) return null;
+    return `data:image/${dataUrl[1].toLowerCase()};base64,${payload}`;
+}
+
+function isUnsupportedImageError(error: unknown): boolean {
+    const message = formatQaErrorMessage(error);
+    return /image_url|unsupported\s+image|image.{0,32}format/i.test(message);
+}
+
+function omitImagesFromMessages(messages: LlmRequestMessage[]): LlmRequestMessage[] {
+    return messages.map((message) => {
+        if (!Array.isArray(message.content)) return message;
+        const textParts = message.content.filter(
+            (part): part is Extract<LLMContentPart, { type: "text" }> => part.type === "text",
+        );
+        const content = textParts.length > 0
+            ? textParts
+            : [{ type: "text" as const, text: "[旧图片格式无效，已省略]" }];
+        return { ...message, content } as LlmRequestMessage;
+    });
+}
+
 function userEntryContent(entry: QaContextEntry): string | LLMContentPart[] {
     const fileBlocks = (entry.files ?? []).map((file) => `\n\n[附件：${file.name}]\n${file.content}`).join("");
     const textContent = `${entry.content}${fileBlocks}`;
-    if (!entry.images?.length) return textContent;
+    const images = (entry.images ?? [])
+        .map(normalizeQaImageUrl)
+        .filter((url): url is string => Boolean(url));
+    if (!images.length) return textContent;
     return [
         { type: "text", text: textContent },
-        ...entry.images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+        ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
     ];
 }
 
@@ -727,7 +763,10 @@ async function callQaAgentNative(apiConfig: ApiConfig, history: QaEngineMessage[
         } catch (streamError) {
             if (options?.signal?.aborted) throw streamError;
             await callbacks?.onStreamFallback?.(formatQaErrorMessage(streamError));
-            const fallbackRequest = buildProviderRequest(apiConfig, null, messages, { tools, maxTokens: getQaMaxOutputTokens() ?? undefined });
+            const fallbackMessages = isUnsupportedImageError(streamError)
+                ? omitImagesFromMessages(messages)
+                : messages;
+            const fallbackRequest = buildProviderRequest(apiConfig, null, fallbackMessages, { tools, maxTokens: getQaMaxOutputTokens() ?? undefined });
             const response = await fetchLlmPayload(fallbackRequest, { signal: options?.signal });
             if (!response.ok) throw new Error(`API ${response.status}: ${await response.text()}`);
             const parsed = parseProviderResponse(fallbackRequest.providerKind, await response.json());

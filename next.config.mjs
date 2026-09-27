@@ -21,6 +21,11 @@ function resolveDistDir() {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // 在个人自托管分支里把开关固化为客户端构建常量。部署环境仍可显式设为
+  // false 重新启用账号门禁；未设置时默认使用无需 Supabase 的单机模式。
+  env: {
+    NEXT_PUBLIC_SELF_HOSTED_MODE: process.env.NEXT_PUBLIC_SELF_HOSTED_MODE ?? "true",
+  },
   typedRoutes: true,
   outputFileTracingRoot: projectRoot,
   distDir: resolveDistDir(),
