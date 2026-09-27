@@ -16,7 +16,7 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       NEXT_PUBLIC_SELF_HOSTED_MODE: "true"
 
@@ -66,11 +66,46 @@ jobs:
           FLOAT_USER: ${{ secrets.FLOAT_USER }}
         run: |
           set -Eeuo pipefail
-          SSH_ARGS=(-i "$HOME/.ssh/float_deploy" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes)
+          SSH_ARGS=(
+            -i "$HOME/.ssh/float_deploy"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=30
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=8
+            -o IPQoS=throughput
+          )
           ARCHIVE="float-${GITHUB_SHA}.tar.gz"
           SCRIPT="float-release-${GITHUB_SHA}.sh"
+          CHECKSUM="$ARCHIVE.sha256"
 
-          scp "${SSH_ARGS[@]}" "$RUNNER_TEMP/$ARCHIVE" "$FLOAT_USER@$FLOAT_HOST:/tmp/$ARCHIVE"
-          scp "${SSH_ARGS[@]}" deploy/float-release.sh "$FLOAT_USER@$FLOAT_HOST:/tmp/$SCRIPT"
+          sha256sum "$RUNNER_TEMP/$ARCHIVE" | awk '{print $1}' >"$RUNNER_TEMP/$CHECKSUM"
+          split -b 1M -d -a 3 "$RUNNER_TEMP/$ARCHIVE" "$RUNNER_TEMP/$ARCHIVE.part-"
+
+          upload() {
+            local source="$1"
+            local destination="$2"
+            local attempt
+
+            for attempt in 1 2 3; do
+              if scp -O "${SSH_ARGS[@]}" "$source" "$FLOAT_USER@$FLOAT_HOST:$destination"; then
+                return 0
+              fi
+              echo "Upload attempt $attempt failed for $(basename "$source")." >&2
+              sleep 5
+            done
+            return 1
+          }
+
           ssh "${SSH_ARGS[@]}" "$FLOAT_USER@$FLOAT_HOST" \
-            "chmod 700 '/tmp/$SCRIPT' && '/tmp/$SCRIPT' '/tmp/$ARCHIVE' '$GITHUB_SHA' && rm -f '/tmp/$SCRIPT'"
+            "rm -f '/tmp/$ARCHIVE' /tmp/'$ARCHIVE'.part-* '/tmp/$CHECKSUM' '/tmp/$SCRIPT'"
+
+          upload deploy/float-release.sh "/tmp/$SCRIPT"
+          upload "$RUNNER_TEMP/$CHECKSUM" "/tmp/$CHECKSUM"
+          for part in "$RUNNER_TEMP/$ARCHIVE".part-*; do
+            upload "$part" "/tmp/$(basename "$part")"
+          done
+
+          ssh "${SSH_ARGS[@]}" "$FLOAT_USER@$FLOAT_HOST" \
+            "set -e; cat /tmp/'$ARCHIVE'.part-* >'/tmp/$ARCHIVE'; expected=\$(cat '/tmp/$CHECKSUM'); printf '%s  %s\n' \"\$expected\" '/tmp/$ARCHIVE' | sha256sum -c -; rm -f /tmp/'$ARCHIVE'.part-* '/tmp/$CHECKSUM'; chmod 700 '/tmp/$SCRIPT'; '/tmp/$SCRIPT' '/tmp/$ARCHIVE' '$GITHUB_SHA'; rm -f '/tmp/$SCRIPT'"
