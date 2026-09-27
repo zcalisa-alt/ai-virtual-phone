@@ -1,0 +1,76 @@
+name: Deploy Float personal
+
+on:
+  push:
+    branches:
+      - personal
+  workflow_dispatch:
+
+concurrency:
+  group: float-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SELF_HOSTED_MODE: "true"
+
+    steps:
+      - name: Check out personal branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build Float
+        run: npm run build
+
+      - name: Assemble release archive
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/float-release"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/float-release"
+          cp -a .next "$RUNNER_TEMP/float-release/.next"
+          rm -rf "$RUNNER_TEMP/float-release/.next/cache"
+          tar -C "$RUNNER_TEMP/float-release" -czf "$RUNNER_TEMP/float-${GITHUB_SHA}.tar.gz" .
+
+      - name: Configure deployment SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.FLOAT_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.FLOAT_SSH_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" >"$HOME/.ssh/float_deploy"
+          chmod 600 "$HOME/.ssh/float_deploy"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" >"$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Upload and activate release
+        shell: bash
+        env:
+          FLOAT_HOST: ${{ secrets.FLOAT_HOST }}
+          FLOAT_USER: ${{ secrets.FLOAT_USER }}
+        run: |
+          set -Eeuo pipefail
+          SSH_ARGS=(-i "$HOME/.ssh/float_deploy" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes)
+          ARCHIVE="float-${GITHUB_SHA}.tar.gz"
+          SCRIPT="float-release-${GITHUB_SHA}.sh"
+
+          scp "${SSH_ARGS[@]}" "$RUNNER_TEMP/$ARCHIVE" "$FLOAT_USER@$FLOAT_HOST:/tmp/$ARCHIVE"
+          scp "${SSH_ARGS[@]}" deploy/float-release.sh "$FLOAT_USER@$FLOAT_HOST:/tmp/$SCRIPT"
+          ssh "${SSH_ARGS[@]}" "$FLOAT_USER@$FLOAT_HOST" \
+            "chmod 700 '/tmp/$SCRIPT' && '/tmp/$SCRIPT' '/tmp/$ARCHIVE' '$GITHUB_SHA' && rm -f '/tmp/$SCRIPT'"

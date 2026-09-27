@@ -28,3 +28,9 @@ tools/weixin-local-assistant/config.txt
 *.ts.net.crt
 *.ts.net.key
 /public/models/world-builder/
+
+# Local-only deployment credentials. Never commit these files.
+.private/
+
+# Local-only deployment credentials. Never commit these files.
+.private/
