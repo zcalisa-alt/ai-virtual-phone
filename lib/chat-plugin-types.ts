@@ -229,6 +229,7 @@ export type ChatPluginContext = {
     data: {
         messages: {
             list(sessionId: string): ChatMessage[];
+            /** 写入后宿主会立即刷新对应会话的可见消息。 */
             push(input: { sessionId: string; role: "user" | "assistant" | "system"; content: string;[k: string]: unknown }): ChatMessage;
             update(id: string, patch: Partial<ChatMessage>): void;
             /**

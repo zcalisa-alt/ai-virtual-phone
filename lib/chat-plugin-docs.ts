@@ -113,7 +113,7 @@ opts.timeoutMs 覆盖该 transform 的超时（默认 8000ms）。在 transform 
 
 ## ctx.data —— 数据
 
-- \`ctx.data.messages.list(sessionId)\` → 消息数组；\`.push({ sessionId, role, content, ... })\` 发一条消息（role: "user" | "assistant" | "system"）；\`.update(id, patch)\` 改消息
+- \`ctx.data.messages.list(sessionId)\` → 消息数组；\`.push({ sessionId, role, content, ... })\` 发一条消息并立即刷新对应会话（role: "user" | "assistant" | "system"）；\`.update(id, patch)\` 改消息
 - \`await ctx.data.messages.resolveMedia(msg)\` → 把消息的二进制媒体（图片/语音/视频/文件）解析成真实字节：返回 \`{ dataURL, blob, mimeType, category }\`（category: image/audio/video/file），无媒体或失败返回 null。聊天里的图片/语音等存的是 mediastore:// 引用不能直接用，要靠这个解析。dataURL 可直接塞进视觉 API 的 image_url。
 - \`ctx.data.sessions.list()\` / \`.get(id)\` → 会话（含 isGroup、contactId 等）
 - \`ctx.data.contacts.list()\` → 聊天联系人

@@ -341,7 +341,14 @@ class ChatPluginRuntime {
             data: {
                 messages: {
                     list: (sessionId) => loadChatMessages(sessionId),
-                    push: (input) => pushChatMessage(input as Parameters<typeof pushChatMessage>[0]),
+                    push: (input) => {
+                        const message = pushChatMessage(input as Parameters<typeof pushChatMessage>[0]);
+                        // 插件并不持有 ChatRoom 的 React setState。消息落库后主动通知
+                        // 当前会话重载，否则消息只存在于存储/提示词里，界面要等下一次
+                        // 外部刷新才会出现（典型表现：角色看见了插件图片，用户气泡没显示）。
+                        emitDom("chat-messages-updated", { sessionId: message.sessionId });
+                        return message;
+                    },
                     update: (id, patch) => {
                         updateChatMessage(id, patch as Partial<Pick<ChatMessage, "content" | "mediaType" | "mediaUrl" | "mediaData">>);
                     },
