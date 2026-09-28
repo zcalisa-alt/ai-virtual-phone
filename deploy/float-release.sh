@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "Usage: $0 <release-archive.tar.gz> <git-sha>" >&2
+if [[ $# -ne 3 ]]; then
+  echo "Usage: $0 <release-archive.tar.gz> <git-sha> <base-sha>" >&2
   exit 64
 fi
 
 ARCHIVE="$1"
 GIT_SHA="$2"
+BASE_SHA="$3"
 RELEASES_ROOT="/opt/ai-virtual-phone-releases"
 CURRENT_LINK="$RELEASES_ROOT/current"
 APP_NAME="ai-virtual-phone"
@@ -20,6 +21,11 @@ if [[ ! "$GIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   exit 65
 fi
 
+if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid base SHA: $BASE_SHA" >&2
+  exit 65
+fi
+
 if [[ ! -f "$ARCHIVE" ]]; then
   echo "Release archive not found: $ARCHIVE" >&2
   exit 66
@@ -28,6 +34,7 @@ fi
 RELEASE_DIR="$RELEASES_ROOT/$GIT_SHA"
 PREVIOUS_RELEASE="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
 TEMP_LINK="$RELEASES_ROOT/.current-$GIT_SHA"
+NEW_RELEASE_CREATED=0
 
 healthcheck() {
   local port="$1"
@@ -56,6 +63,16 @@ rollback() {
     NEXT_PUBLIC_SELF_HOSTED_MODE=true pm2 restart "$APP_NAME" --update-env >/dev/null 2>&1 || true
     pm2 save >/dev/null 2>&1 || true
   fi
+
+  if [[ "$NEW_RELEASE_CREATED" == "1" && -d "$RELEASE_DIR" ]]; then
+    resolved="$(realpath -m "$RELEASE_DIR")"
+    case "$resolved" in
+      "$RELEASES_ROOT"/"$GIT_SHA")
+        find "$resolved" -mindepth 1 -delete >/dev/null 2>&1 || true
+        rmdir -- "$resolved" >/dev/null 2>&1 || true
+        ;;
+    esac
+  fi
 }
 
 trap rollback ERR
@@ -67,8 +84,38 @@ if [[ -e "$RELEASE_DIR" ]]; then
   exit 67
 fi
 
-mkdir -- "$RELEASE_DIR"
+if [[ -z "$PREVIOUS_RELEASE" || ! -d "$PREVIOUS_RELEASE" ]]; then
+  echo "Current release is unavailable." >&2
+  exit 68
+fi
+
+DEPLOYED_SHA="$(cat "$PREVIOUS_RELEASE/.deployment-version" 2>/dev/null || true)"
+if [[ "$DEPLOYED_SHA" != "$BASE_SHA" ]]; then
+  echo "Deployed version changed: expected $BASE_SHA, found $DEPLOYED_SHA" >&2
+  exit 69
+fi
+
+cp -al -- "$PREVIOUS_RELEASE/." "$RELEASE_DIR/"
+NEW_RELEASE_CREATED=1
+
+resolved_release="$(realpath -m "$RELEASE_DIR")"
+if [[ "$resolved_release" != "$RELEASES_ROOT/$GIT_SHA" ]]; then
+  echo "Unexpected release path: $resolved_release" >&2
+  exit 70
+fi
+
+find "$RELEASE_DIR/.next" -mindepth 1 -delete 2>/dev/null || true
+rmdir -- "$RELEASE_DIR/.next" 2>/dev/null || true
+rm -rf -- "$RELEASE_DIR/node_modules"
+rm -f -- "$RELEASE_DIR/.deployment-version"
 tar -xzf "$ARCHIVE" -C "$RELEASE_DIR"
+
+(
+  cd "$RELEASE_DIR"
+  git apply --no-index --binary --whitespace=nowarn source.patch
+  rm -f -- source.patch
+)
+
 printf '%s\n' "$GIT_SHA" >"$RELEASE_DIR/.deployment-version"
 
 if [[ -n "$PREVIOUS_RELEASE" \
