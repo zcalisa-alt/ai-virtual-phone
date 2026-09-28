@@ -123,10 +123,12 @@ opts.timeoutMs 覆盖该 transform 的超时（默认 8000ms）。在 transform 
   - scope: "global"（默认）| "session"（传 sessionId）| "character"（传 characterId）
   - 插件自己的私有数据请用 ctx.system.storage，不要放变量池
 
-## ctx.ai —— LLM 裸通道
+## ctx.ai —— AI 裸通道
 
 \`await ctx.ai.chat({ prompt, system?, temperature?, maxTokens? })\` → 回复文本。
 直连用户配置的模型 API：不挂角色、不进聊天记录、不写记忆。
+
+\`await ctx.ai.generateImage({ description, characterId?, useReferenceImage?, signal? })\` → 生图结果或 null。它直接复用用户在“设置 → 图像生成”里当前选择的提供方、Base URL、API Key、模型、预设和请求方式；插件不要再要求用户重复填写密钥。结果包含 \`mediaRef\`（写入聊天图片消息）、\`dataUrl\`（预览）、\`mimeType\`、\`prompt\` 等字段。未启用生图或配置不完整时返回 null。
 
 ## ctx.prompts —— 持久提示词片段
 

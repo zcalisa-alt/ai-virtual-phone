@@ -15,6 +15,7 @@ import { isMediaStoreRef, loadMediaBlob } from "./media-cache-storage";
 import { loadCharacters } from "./character-storage";
 import { loadApiConfigs, loadBindingConfig } from "./settings-storage";
 import { simpleLLMCall } from "./api-helpers";
+import { generateImageFromConfiguredApi } from "./image-generation-service";
 import { getChatPluginHookBus } from "./chat-plugin-hooks";
 import { loadChatPluginModule } from "./chat-plugin-loader";
 import {
@@ -390,6 +391,23 @@ class ChatPluginRuntime {
                     const result = await simpleLLMCall(config, messages, { temperature, max_tokens: maxTokens });
                     if (result.error) throw new Error(result.error);
                     return result.content ?? "";
+                },
+                generateImage: async ({ description, characterId, useReferenceImage, signal }) => {
+                    const result = await generateImageFromConfiguredApi({
+                        description,
+                        characterId,
+                        useReferenceImage,
+                        signal,
+                    });
+                    if (!result) return null;
+                    return {
+                        mediaRef: result.mediaRef,
+                        dataUrl: result.dataUrl,
+                        mimeType: result.mimeType,
+                        prompt: result.prompt,
+                        usedReferenceImage: result.usedReferenceImage,
+                        revisedPrompt: result.revisedPrompt,
+                    };
                 },
             },
 

@@ -273,6 +273,23 @@ export type ChatPluginContext = {
             temperature?: number;
             maxTokens?: number;
         }): Promise<string>;
+        /**
+         * 使用“设置 → 图像生成”里当前激活的提供方与预设生成图片。
+         * 插件不接触或重复保存用户的 Base URL / API Key。
+         */
+        generateImage(opts: {
+            description: string;
+            characterId?: string;
+            useReferenceImage?: boolean;
+            signal?: AbortSignal;
+        }): Promise<{
+            mediaRef: string;
+            dataUrl: string;
+            mimeType: string;
+            prompt: string;
+            usedReferenceImage: boolean;
+            revisedPrompt?: string;
+        } | null>;
     };
 
     /** 持久提示词片段：无需每次事件重设，聚合后注入 prompt.system 的 hint 初值 */
