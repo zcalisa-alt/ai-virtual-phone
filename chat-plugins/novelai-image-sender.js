@@ -24,6 +24,11 @@ export default {
     var activeSessionId = "";
     var REQUEST_REPLY_EVENT = "chat-request-reply";
 
+    // 1.0.x 曾在插件私有存储里保存 NovelAI Token；1.1 起统一使用系统生图配置，
+    // 升级时主动清理这份不再使用的旧密钥。
+    try { ctx.system.storage.remove("novelai-token"); }
+    catch (_) {}
+
     function S(key, fallback) {
       try {
         var value = ctx.system.settings.get(key);
