@@ -79,11 +79,16 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          git diff --binary --full-index "$DEPLOY_BASE_SHA" "$GITHUB_SHA" \
-            >"$RUNNER_TEMP/source.patch"
+          git diff --no-renames --name-only --diff-filter=ACMRTUXB -z \
+            "$DEPLOY_BASE_SHA" "$GITHUB_SHA" >"$RUNNER_TEMP/changed-files.zlist"
+          git diff --no-renames --name-only --diff-filter=D -z \
+            "$DEPLOY_BASE_SHA" "$GITHUB_SHA" >"$RUNNER_TEMP/deleted-files.zlist"
+          tar --null -T "$RUNNER_TEMP/changed-files.zlist" \
+            -cf "$RUNNER_TEMP/source-files.tar"
           tar --exclude='.next/cache' \
             -czf "$RUNNER_TEMP/float-${GITHUB_SHA}.tar.gz" \
-            .next -C "$RUNNER_TEMP" source.patch
+            .next -C "$RUNNER_TEMP" source-files.tar \
+            changed-files.zlist deleted-files.zlist
 
       - name: Upload and activate release
         shell: bash

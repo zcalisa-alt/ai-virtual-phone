@@ -53,6 +53,7 @@ healthcheck() {
 }
 
 rollback() {
+  trap - ERR
   echo "Deployment failed; rolling back to the previous release." >&2
   pm2 delete "$CANARY_NAME" >/dev/null 2>&1 || true
 
@@ -110,11 +111,34 @@ rm -rf -- "$RELEASE_DIR/node_modules"
 rm -f -- "$RELEASE_DIR/.deployment-version"
 tar -xzf "$ARCHIVE" -C "$RELEASE_DIR"
 
-(
-  cd "$RELEASE_DIR"
-  git apply --no-index --binary --whitespace=nowarn source.patch
-  rm -f -- source.patch
-)
+remove_relative_path() {
+  local relative_path="$1"
+  if [[ -z "$relative_path" || "$relative_path" == /* ]]; then
+    echo "Unsafe deleted path: $relative_path" >&2
+    exit 71
+  fi
+  case "/$relative_path/" in
+    *"/../"*|*"/./"*)
+      echo "Unsafe deleted path: $relative_path" >&2
+      exit 71
+      ;;
+  esac
+  rm -rf -- "$RELEASE_DIR/$relative_path"
+}
+
+while IFS= read -r -d '' relative_path; do
+  remove_relative_path "$relative_path"
+done <"$RELEASE_DIR/deleted-files.zlist"
+
+while IFS= read -r -d '' relative_path; do
+  remove_relative_path "$relative_path"
+done <"$RELEASE_DIR/changed-files.zlist"
+
+tar -xf "$RELEASE_DIR/source-files.tar" -C "$RELEASE_DIR"
+rm -f -- \
+  "$RELEASE_DIR/source-files.tar" \
+  "$RELEASE_DIR/changed-files.zlist" \
+  "$RELEASE_DIR/deleted-files.zlist"
 
 printf '%s\n' "$GIT_SHA" >"$RELEASE_DIR/.deployment-version"
 
