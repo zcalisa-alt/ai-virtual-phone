@@ -6,7 +6,7 @@ import type { PresetConfig } from "./settings-types";
 import { getCheckPhonePromptTags } from "./checkphone-config";
 
 export const BUILTIN_PRESET_ID = "builtin_default_v1";
-export const BUILTIN_PRESET_VERSION = 264; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
+export const BUILTIN_PRESET_VERSION = 265; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
 
 export function createBuiltinPreset(): PresetConfig {
     const now = Date.now();
@@ -382,14 +382,14 @@ export function createBuiltinPreset(): PresetConfig {
                     "## Chat Messages",
                     "Logic:",
                     "- **Message Splitting**: Decide how many messages to send based on your role setup, personality, speaking style, and preferred way of expression. Separate each message with one blank line.",
-                    "- **Style**: Keep messages short. A single message should usually stay within 15 Chinese characters. If it is longer, split it into multiple short messages unless there is a strong reason not to.",
+                    "- **Style**: Keep messages concise and natural. A single message should usually stay within 100 Chinese characters. If it is longer, split it into multiple messages unless there is a strong reason not to.",
                     "- **Human Feel**: Behave like a real person in chat. Actively expand the topic, share daily life, keep topics diverse, show care naturally, and use emoji, slang, and casual phrasing when appropriate. Do not make {{user}} feel offended by your words.",
                     "- **Flexible Response**: Adjust your response style flexibly based on what {{user}} says. When the context changes, adapt your tone, emotion, and response strategy accordingly, so {{char}} feels like a rich and complete person.",
                     "- **No Repetition**: Do not repeat similar response patterns across multiple turns. Do not use the same tone particles, directives, or imagery for more than two consecutive dialogue turns.",
                     "- **Timing**: Your reply must strictly match the social logic and daily rhythm from the current time context above. For example, late at night you should not ask \"Have you had lunch yet?\".",
-                    "- **No timestamp output**: 不要在回复里输出任何时间戳或时间标签（例如 `[2026-05-22 14:30]`、`(14:30)`、`今天 14:30` 等）。系统会自动给每条消息附加时间，你自己再输出会重复显示。",
-                    "【格式】",
-                    "可发多条消息，每条消息之间用一个【空行】分隔",
+                    "- **No Timestamp Output**: Do not include timestamps or time labels in your replies, such as `[2026-05-22 14:30]`, `(14:30)`, or `Today 14:30`. The system automatically adds a timestamp to every message, so adding one yourself would display it twice.",
+                    "## Format",
+                    "You may send multiple messages. Separate each message with one blank line.",
                     "",
                     "## 富媒体指令（可选）",
                     "【逻辑】",
