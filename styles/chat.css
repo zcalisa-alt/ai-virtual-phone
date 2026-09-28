@@ -2744,6 +2744,33 @@
   animation: chatPanelExpand 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* 插件工具直接参与原生四列网格，不再另起一行挂在菜单卡片外。 */
+.chat-plus-menu > .chat-plugin-input-toolbar {
+  display: contents;
+}
+
+/* 已安装的 1.0.0 生图插件也由宿主兜底拉齐原生菜单尺寸，用户无需重新导入。 */
+.chat-plus-menu > .chat-plugin-input-toolbar > .fais-toolbar {
+  display: flex !important;
+  justify-content: center !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+}
+.chat-plus-menu > .chat-plugin-input-toolbar > .fais-toolbar .fais-open {
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  gap: 6px !important;
+}
+.chat-plus-menu > .chat-plugin-input-toolbar > .fais-toolbar .fais-open-icon {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 12px !important;
+  background: var(--c-panel) !important;
+  font-size: 20px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+}
+
 /* ── Plus menu icon box ── */
 .chat-plus-icon-box {
   width: 44px;

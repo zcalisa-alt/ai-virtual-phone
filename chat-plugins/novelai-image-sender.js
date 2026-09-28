@@ -1,4 +1,4 @@
-// Float 聊天插件 · NovelAI 生图发送器 v1.0.0
+// Float 聊天插件 · NovelAI 生图发送器 v1.0.1
 //
 // 用途：在聊天「+」面板增加“AI 生图”。输入画面描述，生成、预览后，
 //       作为“我”发送的真实图片写入当前会话，并可立即触发角色回复。
@@ -11,7 +11,7 @@ export default {
     id: "novelai-image-sender",
     name: "NovelAI 生图发送器",
     apiVersion: 1,
-    version: "1.0.0",
+    version: "1.0.1",
     author: "Float personal",
     description: "在聊天中用 NovelAI 生图，预览后作为自己的图片发给角色。支持 V4、V4.5、V5。",
     permissions: ["chat.write", "network", "ui", "storage"],
@@ -114,10 +114,10 @@ export default {
     });
 
     ctx.ui.injectCSS([
-      ".fais-toolbar{padding:2px 4px 8px;display:flex;justify-content:flex-start}",
-      ".fais-open{appearance:none;border:0;background:transparent;color:var(--c-text,#222);display:flex;flex-direction:column;align-items:center;gap:5px;padding:6px 9px;min-width:64px;font:inherit}",
-      ".fais-open-icon{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--c-input,#f2f3f5);font-size:23px}",
-      ".fais-open-label{font-size:11px;line-height:1.2}",
+      ".fais-toolbar{display:flex;justify-content:center;min-width:0}",
+      ".fais-open{appearance:none;border:0;background:transparent;color:var(--c-text,#222);display:flex;flex-direction:column;align-items:center;gap:6px;padding:0;width:100%;min-width:0;font:inherit;cursor:pointer}",
+      ".fais-open-icon{width:44px;height:44px;border-radius:12px;border:1px solid transparent;display:grid;place-items:center;background:var(--c-panel,#f2f3f5);box-shadow:0 1px 3px rgba(0,0,0,.05);font-size:20px;box-sizing:border-box}",
+      ".fais-open-label{font-size:11px;line-height:1.2;color:var(--c-text,#222)}",
       ".fais-modal{width:min(92vw,430px);max-height:min(82vh,720px);overflow:auto;padding:18px;color:var(--c-text,#1d2433);box-sizing:border-box}",
       ".fais-title{font-size:19px;font-weight:750;margin:0 0 4px}",
       ".fais-sub{font-size:12px;opacity:.62;line-height:1.55;margin-bottom:14px}",
@@ -501,13 +501,13 @@ export default {
       return modal;
     }
 
-    ctx.ui.slot("chat.inputToolbar", function (el) {
+    ctx.ui.slot("chat.inputToolbar", function (el, props) {
       el.classList.add("fais-toolbar");
       var button = document.createElement("button");
       button.type = "button";
       button.className = "fais-open";
       button.innerHTML = '<span class="fais-open-icon">✦</span><span class="fais-open-label">AI 生图</span>';
-      button.onclick = function () { openGenerator(currentSessionId()); };
+      button.onclick = function () { openGenerator(props && props.sessionId ? String(props.sessionId) : currentSessionId()); };
       el.appendChild(button);
       return function () { el.replaceChildren(); };
     });

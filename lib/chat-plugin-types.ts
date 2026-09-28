@@ -157,7 +157,7 @@ export type ChatPluginEventPayloadMap = {
 /**
  * DOM 坑位：宿主把一个 React 不管辖的裸 HTMLElement 交给插件，插件自由渲染。
  *   chat.header        聊天室标题栏下方（每会话一个）
- *   chat.inputToolbar  输入栏"+"扩展面板内（插件工具按钮区）
+ *   chat.inputToolbar  输入栏"+"扩展面板的原生工具网格内
  *   message.footer     每条文本消息气泡下方
  *   settings.section   插件管理页内该插件的自定义设置区
  */
