@@ -213,7 +213,7 @@ async function runNovelAiGeneration(input: ImageGenerationRequest): Promise<{ st
       Referer: "https://novelai.net/",
     };
 
-    // V4 / V4.5 家族需要 v4_prompt / v4_negative_prompt + params_version，
+    // V4 / V4.5 / V5 家族需要 v4_prompt / v4_negative_prompt + params_version，
     // V3 家族沿用旧结构；分流逻辑与客户端直连共用 buildNovelAiParameters。
     const parameters = buildNovelAiParameters({
       model,

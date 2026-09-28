@@ -106,19 +106,27 @@ export function normalizeNovelAiScale(value: unknown): number {
     : NOVELAI_DEFAULT_SCALE;
 }
 
-// --- 请求参数组装（V3 / V4 两套结构分流）---
+// --- 请求参数组装（V3 / V4+ 两套结构分流）---
 //
 // NovelAI V4 起提示词不再是一根字符串：参数里必须同时带上 v4_prompt /
 // v4_negative_prompt 两套 caption 结构（各自含 base_caption 与 char_captions），
-// SMEA 也由 sm/sm_dyn 换成 autoSmea。只发旧结构时上游会对 V4 家族直接返回
-// 500 Internal Server Error（V3 家族照常出图），所以这里按模型族分流。
+// V5 仍沿用这两个字段名，但使用 params_version 4，并且不支持 SMEA。只发旧结构时
+// 上游会对 V4+ 家族直接返回 500 Internal Server Error（V3 家族照常出图），所以
+// 这里按模型族分流。
 // 客户端直连与服务端转发共用这一份，避免两条链路再次走偏。
-const NOVELAI_V4_FAMILY_PATTERN = /diffusion-4(?:-|$)/;
+const NOVELAI_STRUCTURED_PROMPT_FAMILY_PATTERN = /diffusion-(?:4|5)(?:-|$)/;
+const NOVELAI_V5_FAMILY_PATTERN = /diffusion-5(?:-|$)/;
 
-/** 该模型是否属于 V4 / V4.5 家族（需要 v4_prompt 结构）。V3 家族与未知模型返回 false。 */
+/** 该模型是否使用 v4_prompt 结构。V4 / V4.5 / V5 返回 true，V3 与未知模型返回 false。 */
 export function usesNovelAiV4PromptStructure(model: unknown): boolean {
   const normalized = typeof model === "string" ? model.trim().toLowerCase() : "";
-  return NOVELAI_V4_FAMILY_PATTERN.test(normalized);
+  return NOVELAI_STRUCTURED_PROMPT_FAMILY_PATTERN.test(normalized);
+}
+
+/** 该模型是否属于 V5 家族（params_version 4，且仅支持 Karras 调度器）。 */
+export function isNovelAiV5Model(model: unknown): boolean {
+  const normalized = typeof model === "string" ? model.trim().toLowerCase() : "";
+  return NOVELAI_V5_FAMILY_PATTERN.test(normalized);
 }
 
 export type NovelAiParameterInput = {
@@ -139,6 +147,7 @@ export type NovelAiParameterInput = {
 /** 组装 NovelAI /ai/generate-image 的 parameters 字段。 */
 export function buildNovelAiParameters(input: NovelAiParameterInput): Record<string, unknown> {
   const negativePrompt = input.negativePrompt ?? "";
+  const isV5 = isNovelAiV5Model(input.model);
   const common: Record<string, unknown> = {
     width: input.width,
     height: input.height,
@@ -153,7 +162,8 @@ export function buildNovelAiParameters(input: NovelAiParameterInput): Record<str
     legacy: false,
     add_original_image: false,
     cfg_rescale: 0,
-    noise_schedule: normalizeNovelAiNoiseSchedule(input.noiseSchedule),
+    // NovelAI 官方前端会把 V5 调度器固定为 Karras；其他值会被服务端拒绝或忽略。
+    noise_schedule: isV5 ? "karras" : normalizeNovelAiNoiseSchedule(input.noiseSchedule),
     negative_prompt: negativePrompt,
   };
 
@@ -168,8 +178,11 @@ export function buildNovelAiParameters(input: NovelAiParameterInput): Record<str
 
   return {
     ...common,
-    params_version: 3,
-    autoSmea: false,
+    params_version: isV5 ? 4 : 3,
+    // V4 / V4.5 支持 autoSmea；V5 当前不支持 SMEA，字段也不应发送。
+    ...(isV5 ? {} : { autoSmea: false }),
+    // V5 的新版质量预设用数值提示；关闭质量词时不发送该字段。
+    ...(isV5 && input.qualityToggle !== false ? { tag_hint_qt: 1 } : {}),
     legacy_v3_extend: false,
     use_coords: false,
     image_format: "png",

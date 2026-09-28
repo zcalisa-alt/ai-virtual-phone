@@ -527,7 +527,7 @@ async function generateNovelAiDirect(params: {
     "Content-Type": "application/json",
   };
 
-  // V3 家族沿用旧参数结构，V4 / V4.5 家族改用 v4_prompt 结构（见 buildNovelAiParameters）。
+  // V3 家族沿用旧参数结构，V4 / V4.5 / V5 家族改用 v4_prompt 结构（见 buildNovelAiParameters）。
   const model = normalizeNovelAiModel(preset.model);
   const body = JSON.stringify({
     input: prompt,
