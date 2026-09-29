@@ -16,7 +16,11 @@ import type {
     PromptOrderEntry,
 } from "./settings-types";
 import type { UserIdentity } from "@/components/settings/user-identity";
-import { createBuiltinPreset, BUILTIN_PRESET_VERSION } from "./builtin-preset";
+import {
+    createBuiltinPreset,
+    BUILTIN_CACHE_ORDER_VERSION,
+    BUILTIN_PRESET_VERSION,
+} from "./builtin-preset";
 import {
     NOVELAI_DEFAULT_MODEL,
     NOVELAI_DEFAULT_NOISE_SCHEDULE,
@@ -175,6 +179,30 @@ function preserveCustomAppPresetPrompts(fresh: PresetConfig, previous: PresetCon
     };
 }
 
+/**
+ * Move only the dynamic pre-character world-book marker behind the stable character
+ * card. Do not refresh the built-in preset: users may have edited its prompt text.
+ */
+function migrateBuiltinCacheOrder(preset: PresetConfig): PresetConfig {
+    if ((preset.builtInCacheOrderVersion ?? 0) >= BUILTIN_CACHE_ORDER_VERSION) return preset;
+
+    const order = [...(preset.prompt_order ?? [])];
+    const worldBeforeIndex = order.findIndex(entry => entry.identifier === "worldInfoBefore");
+    const personalityIndex = order.findIndex(entry => entry.identifier === "charPersonality");
+
+    if (worldBeforeIndex >= 0 && personalityIndex >= 0 && worldBeforeIndex < personalityIndex) {
+        const [worldBefore] = order.splice(worldBeforeIndex, 1);
+        const nextPersonalityIndex = order.findIndex(entry => entry.identifier === "charPersonality");
+        order.splice(nextPersonalityIndex + 1, 0, worldBefore);
+    }
+
+    return {
+        ...preset,
+        prompt_order: order,
+        builtInCacheOrderVersion: BUILTIN_CACHE_ORDER_VERSION,
+    };
+}
+
 
 // --- Presets ──────────────────────────────────────────
 
@@ -197,6 +225,11 @@ export function loadPresets(): PresetConfig[] {
             fresh.id = existingBuiltin.id;
             const idx = presets.indexOf(existingBuiltin);
             presets[idx] = fresh;
+            savePresets(presets);
+            shouldPersistCleanup = false;
+        } else if ((existingBuiltin.builtInCacheOrderVersion ?? 0) < BUILTIN_CACHE_ORDER_VERSION) {
+            const idx = presets.indexOf(existingBuiltin);
+            presets[idx] = migrateBuiltinCacheOrder(existingBuiltin);
             savePresets(presets);
             shouldPersistCleanup = false;
         } else if (shouldPersistCleanup) {

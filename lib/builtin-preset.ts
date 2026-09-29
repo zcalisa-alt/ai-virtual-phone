@@ -7,6 +7,7 @@ import { getCheckPhonePromptTags } from "./checkphone-config";
 
 export const BUILTIN_PRESET_ID = "builtin_default_v1";
 export const BUILTIN_PRESET_VERSION = 265; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
+export const BUILTIN_CACHE_ORDER_VERSION = 1;
 
 export function createBuiltinPreset(): PresetConfig {
     const now = Date.now();
@@ -18,6 +19,7 @@ export function createBuiltinPreset(): PresetConfig {
         updatedAt: now,
         builtIn: true,
         builtInVersion: BUILTIN_PRESET_VERSION,
+        builtInCacheOrderVersion: BUILTIN_CACHE_ORDER_VERSION,
         temperature: 0.8,
         top_p: 1,
         top_k: 0,
@@ -32,9 +34,11 @@ export function createBuiltinPreset(): PresetConfig {
             // ── System prompt area (before chatHistory) ──
             { identifier: "chat_immersion_instruction", enabled: true },
             { identifier: "personaDescription", enabled: true },
-            { identifier: "worldInfoBefore", enabled: true },
             { identifier: "charDescription", enabled: true },
             { identifier: "charPersonality", enabled: true },
+            // Keyword-activated world-book entries are dynamic. Keep them after the
+            // large, stable character card so provider prefix caches can reuse it.
+            { identifier: "worldInfoBefore", enabled: true },
             { identifier: "characterRelations", enabled: true },
             { identifier: "worldInfoAfter", enabled: true },
             { identifier: "dwellingContext", enabled: true },

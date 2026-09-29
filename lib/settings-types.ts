@@ -68,6 +68,8 @@ export type Prompt = {
 export type PresetConfig = SettingItemMeta & {
     builtIn?: boolean;
     builtInVersion?: number;
+    /** Targeted built-in prompt-order migrations that preserve user-edited prompt content. */
+    builtInCacheOrderVersion?: number;
     temperature: number;
     top_p: number;
     top_k: number;
