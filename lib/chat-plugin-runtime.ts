@@ -14,7 +14,8 @@ import { hydrateChatStorage, loadChatMessages, loadChatSessions, loadChatContact
 import { isMediaStoreRef, loadMediaBlob } from "./media-cache-storage";
 import { loadCharacters } from "./character-storage";
 import { loadApiConfigs, loadBindingConfig } from "./settings-storage";
-import { simpleLLMCall } from "./api-helpers";
+import { extractUsage, simpleLLMCall } from "./api-helpers";
+import { pushApiLog } from "./api-log-store";
 import { generateImageFromConfiguredApi } from "./image-generation-service";
 import { getChatPluginHookBus } from "./chat-plugin-hooks";
 import { loadChatPluginModule } from "./chat-plugin-loader";
@@ -549,7 +550,17 @@ class ChatPluginRuntime {
                         return track(() => { this.busTopics.get(topic)?.delete(sub); });
                     },
                 },
-                fetch: typeof window !== "undefined" ? window.fetch.bind(window) : fetch,
+                fetch: async (input, init) => {
+                    const nativeFetch = typeof window !== "undefined" ? window.fetch.bind(window) : fetch;
+                    try {
+                        const response = await nativeFetch(input, init);
+                        await recordPluginChatCompletion(activePlugin, input, init, response);
+                        return response;
+                    } catch (error) {
+                        await recordPluginChatCompletion(activePlugin, input, init, null, error);
+                        throw error;
+                    }
+                },
                 settings: {
                     get: <T,>(key: string): T | undefined => {
                         const installed = loadChatPlugins().find(p => p.manifest.id === pluginId);
@@ -585,6 +596,72 @@ class ChatPluginRuntime {
 
 function safeStringify(value: unknown): string {
     try { return JSON.stringify(value) ?? String(value); } catch { return String(value); }
+}
+
+/**
+ * Direct plugin fetches bypass simpleLLMCall, so OpenAI-compatible model calls used
+ * to be invisible in the unified API log. Record only /chat/completions payloads;
+ * headers (and therefore API keys) are intentionally never inspected or stored.
+ */
+async function recordPluginChatCompletion(
+    activePlugin: ActivePlugin,
+    input: RequestInfo | URL,
+    init: RequestInit | undefined,
+    response: Response | null,
+    requestError?: unknown,
+): Promise<void> {
+    try {
+        const url = typeof input === "string"
+            ? input
+            : input instanceof URL
+                ? input.href
+                : input.url;
+        if (!/\/chat\/completions(?:\?|$)/i.test(url)) return;
+        if (typeof init?.body !== "string") return;
+
+        const requestBody = JSON.parse(init.body) as Record<string, unknown>;
+        const rawMessages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
+        const messages = rawMessages.map((message) => {
+            const item = message && typeof message === "object" ? message as Record<string, unknown> : {};
+            return {
+                role: typeof item.role === "string" ? item.role : "user",
+                content: typeof item.content === "string" ? item.content : safeStringify(item.content ?? ""),
+            };
+        });
+
+        let rawResponse = "";
+        let usage: ReturnType<typeof extractUsage>;
+        if (requestError) {
+            rawResponse = `[请求失败] ${requestError instanceof Error ? requestError.message : String(requestError)}`;
+        } else if (response) {
+            const responseText = await response.clone().text().catch(() => "");
+            let responseJson: Record<string, unknown> | null = null;
+            try { responseJson = JSON.parse(responseText) as Record<string, unknown>; } catch { /* non-JSON error page */ }
+            if (!response.ok) {
+                rawResponse = `[API 错误 ${response.status}] ${responseText}`;
+            } else if (responseJson) {
+                const choices = Array.isArray(responseJson.choices) ? responseJson.choices : [];
+                const first = choices[0] && typeof choices[0] === "object" ? choices[0] as Record<string, unknown> : {};
+                const message = first.message && typeof first.message === "object" ? first.message as Record<string, unknown> : {};
+                rawResponse = typeof message.content === "string" ? message.content : responseText;
+                usage = extractUsage(responseJson);
+            } else {
+                rawResponse = responseText;
+            }
+        }
+
+        pushApiLog({
+            characterName: `插件：${activePlugin.installed.manifest.name}`,
+            source: "background",
+            channel: "chat",
+            model: typeof requestBody.model === "string" ? requestBody.model : undefined,
+            messages,
+            rawResponse: rawResponse || "[空响应]",
+            usage,
+        });
+    } catch {
+        // Logging must never change plugin request behavior.
+    }
 }
 
 function blobToDataURL(blob: Blob): Promise<string> {
