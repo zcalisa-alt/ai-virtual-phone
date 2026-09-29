@@ -1,11 +1,11 @@
 // lib/context-optimizer.ts
-// Request-side context budgeting for chat and group chat.
+// Request-side context budgeting for chat, group chat, and built-in app tasks.
 // Stored messages and memories are never mutated or deleted here.
 
 import type { MemoryConfig } from "./memory-types";
 import type { PresetConfig } from "./settings-types";
 
-export type PromptContextMode = "chat" | "group_chat";
+export type PromptContextMode = "chat" | "group_chat" | "moments";
 
 export type PromptContextPolicy = {
     enabled: boolean;
@@ -36,10 +36,14 @@ export function resolvePromptContextPolicy(
 ): PromptContextPolicy {
     const configuredTotal = mode === "group_chat"
         ? finitePositive(config.groupContextTokenBudget, 48000)
-        : finitePositive(config.chatContextTokenBudget, 32000);
+        : mode === "moments"
+            ? 24000
+            : finitePositive(config.chatContextTokenBudget, 32000);
     const configuredRecent = mode === "group_chat"
         ? finitePositive(config.groupRecentTokenBudget, 18000)
-        : finitePositive(config.chatRecentTokenBudget, 12000);
+        : mode === "moments"
+            ? 6000
+            : finitePositive(config.chatRecentTokenBudget, 12000);
     const contextWindow = finitePositive(preset?.openai_max_context, configuredTotal + DEFAULT_OUTPUT_RESERVE);
     const outputReserve = finitePositive(preset?.openai_max_tokens, DEFAULT_OUTPUT_RESERVE);
     // Native tool schemas are sent outside messages but still consume provider input tokens.

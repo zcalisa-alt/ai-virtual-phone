@@ -39,6 +39,7 @@ import type { PresetConfig, ApiConfig } from "./settings-types";
 import { loadMemoryConfig, incrementEventCounter } from "./memory-storage";
 import { retrieveCoreMemoriesForPrompt, retrieveMemoriesForPrompt } from "./memory-service";
 import { formatCoreMemories, formatLongTermMemories } from "./memory-injector";
+import { createPromptMemoryConfig, resolvePromptContextPolicy } from "./context-optimizer";
 import { maybeRunSummarization } from "./memory-summarizer";
 import { assemblePromptPayload, type LLMMessage, type AssemblerInput } from "./llm-prompt-assembler";
 import type { RegexConfig } from "./settings-types";
@@ -217,22 +218,28 @@ async function resolveAssemblerInput(
     // 6. Resolve user identity via binding cascade
     const userIdentity = resolveUserIdentity(characterId, "chat");
 
-    // 7. Load long-term memories (NPC doesn't share the character's memory)
+    // 7. Build a request-local context window. Stored timelines and memories are
+    // never changed; only this Moments request receives a bounded copy.
     let coreMemories = "";
     let longTermMemories = "";
     const memConfig = loadMemoryConfig();
+    const contextPolicy = resolvePromptContextPolicy(memConfig, preset, "moments");
+    const promptMemConfig = createPromptMemoryConfig(memConfig, contextPolicy);
+    const prepared = prepareShortTermContext(characterId, "moments", {
+        tokenBudget: contextPolicy.enabled ? contextPolicy.recentTokens : undefined,
+    });
     if (task !== "npc") {
         try {
-            const coreResultsPromise = retrieveCoreMemoriesForPrompt(characterId, memConfig);
-            // Use native timeline as retrieval context (same cross-app data as short-term memory)
-            const { wbActivationContext: recentCtx } = prepareShortTermContext(characterId, "moments");
+            const coreResultsPromise = retrieveCoreMemoriesForPrompt(characterId, promptMemConfig);
+            // Use the same bounded native timeline as both retrieval context and prompt context.
+            const recentCtx = prepared.wbActivationContext;
             const [coreResults, results] = await Promise.all([
                 coreResultsPromise,
                 recentCtx.trim()
-                    ? retrieveMemoriesForPrompt(characterId, recentCtx, memConfig)
+                    ? retrieveMemoriesForPrompt(characterId, recentCtx, promptMemConfig)
                     : Promise.resolve([]),
             ]);
-                coreMemories = formatCoreMemories(coreResults);
+            coreMemories = formatCoreMemories(coreResults);
             longTermMemories = formatLongTermMemories(results);
         } catch (err) {
             console.warn("[Moments] Memory retrieval failed:", err);
@@ -256,7 +263,7 @@ async function resolveAssemblerInput(
 
     // 9. Build AssemblerInput — unified short-term context
     const isNPC = task === "npc" || task === "npc_reply";
-    const { recentBlocks, wbActivationContext, unifiedRecentItems } = prepareShortTermContext(characterId, "moments");
+    const { recentBlocks, wbActivationContext, unifiedRecentItems } = prepared;
 
     // Calendar schedule (NPC doesn't get character's schedule)
     const scheduleSummary = isNPC ? undefined : buildCalendarScheduleMarker("character", characterId, getWeekStartIso(new Date()));
@@ -280,6 +287,10 @@ async function resolveAssemblerInput(
         unifiedRecentItems,
         customStickerNames: getCustomStickerNames(characterId),
         customStickerExample: getCustomStickerExample(characterId),
+        contextBudget: contextPolicy.enabled ? {
+            maxInputTokens: contextPolicy.maxInputTokens,
+            minimumRecentMessages: contextPolicy.minimumRecentMessages,
+        } : undefined,
     };
 
     return { input, apiConfig, preset, character };
