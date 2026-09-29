@@ -930,6 +930,8 @@ export function prepareShortTermContext(
         includeDirectChatEntries?: boolean;
         timeAware?: boolean;
         promptTimestampOptions?: PromptTimestampOptions;
+        /** Request-local override; stored memory settings remain unchanged. */
+        tokenBudget?: number;
     },
 ): {
     recentBlocks: RecentBlock[];
@@ -951,7 +953,9 @@ export function prepareShortTermContext(
 
     // Activation context: full timeline for keyword matching (not truncated)
     const wbActivationContext = timeline.slice(-10).map(e => e.content).join("\n");
-    const budget = memConfig.shortTermTokenBudget;
+    const budget = typeof options?.tokenBudget === "number" && options.tokenBudget > 0
+        ? Math.min(memConfig.shortTermTokenBudget, Math.round(options.tokenBudget))
+        : memConfig.shortTermTokenBudget;
     const currentTag = getFeatureTag(appId);
     const history = options?.history ?? [];
     const characterName = loadCharacters().find(c => c.id === characterId)?.name ?? "角色";
@@ -1187,6 +1191,8 @@ export function prepareGroupShortTermContext(
         includeNativeToolHistory?: boolean;
         timeAware?: boolean;
         promptTimestampOptions?: PromptTimestampOptions;
+        /** Request-local override; stored memory settings remain unchanged. */
+        tokenBudget?: number;
     },
 ): {
     truncatedHistory: ChatMessage[];
@@ -1223,7 +1229,9 @@ export function prepareGroupShortTermContext(
     ].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     const wbActivationContext = activationPool.slice(-10).map(item => item.content).join("\n");
 
-    const budget = memConfig.shortTermTokenBudget;
+    const budget = typeof options?.tokenBudget === "number" && options.tokenBudget > 0
+        ? Math.min(memConfig.shortTermTokenBudget, Math.round(options.tokenBudget))
+        : memConfig.shortTermTokenBudget;
 
     const raw: { tag: string; order: number; entries: NativeTimelineEntry[] }[] = [];
 

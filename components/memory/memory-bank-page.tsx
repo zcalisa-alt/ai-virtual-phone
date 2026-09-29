@@ -32,6 +32,9 @@ import { BINDING_ACCENTS } from "@/lib/ui-accent-colors";
 type MemoryView = "list" | "detail" | "settings";
 type MemoryTab = "short" | "shared" | "core" | "long";
 type MemoryBudgetKey = "shortTermTokenBudget" | "coreMemoryTokenBudget" | "longTermTokenBudget";
+type ContextNumberKey = "chatContextTokenBudget" | "groupContextTokenBudget"
+    | "chatRecentTokenBudget" | "groupRecentTokenBudget"
+    | "minimumRecentMessages" | "rollingSummaryMessageInterval";
 
 const MEMORY_TOKEN_BUDGET_MAX = 100000;
 const MEMORY_TOKEN_BUDGET_MIN: Record<MemoryBudgetKey, number> = {
@@ -413,6 +416,13 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         const min = MEMORY_TOKEN_BUDGET_MIN[key];
         const nextValue = Math.min(MEMORY_TOKEN_BUDGET_MAX, Math.max(min, Math.round(value)));
         const next = { ...config, [key]: nextValue };
+        setConfig(next);
+        saveMemoryConfig(next);
+    };
+
+    const saveContextNumber = (key: ContextNumberKey, value: number, min: number, max: number) => {
+        if (!Number.isFinite(value)) return;
+        const next = { ...config, [key]: Math.min(max, Math.max(min, Math.round(value))) };
         setConfig(next);
         saveMemoryConfig(next);
     };
@@ -900,6 +910,110 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         ) : null}
                     </>
                 )}
+
+                <p className="menu-group-desc mx-2">上下文优化</p>
+                <div className="menu-group">
+                    <div className="menu-item">
+                        <MemorySettingsIcon icon={Zap} color={BINDING_ACCENTS.api} />
+                        <div className="menu-label-group">
+                            <span className="menu-label">智能压缩聊天上下文</span>
+                            <span className="menu-desc">只精简发给模型的副本，原始聊天与各 App 数据不会删除</span>
+                        </div>
+                        <div className="menu-right">
+                            <Toggle checked={config.contextOptimizationEnabled !== false} onChange={(value) => {
+                                const next = { ...config, contextOptimizationEnabled: value };
+                                setConfig(next);
+                                saveMemoryConfig(next);
+                            }} />
+                        </div>
+                    </div>
+                    {config.contextOptimizationEnabled !== false ? (
+                        <>
+                            <MemorySettingsSliderItem
+                                icon={FileText}
+                                color={BINDING_ACCENTS.api}
+                                label="私聊总输入上限"
+                                desc="角色卡、预设、记忆与最近聊天合计；默认 32000"
+                                value={config.chatContextTokenBudget}
+                                min={16000}
+                                max={64000}
+                                step={4000}
+                                onChange={value => saveContextNumber("chatContextTokenBudget", value, 16000, 64000)}
+                            />
+                            <MemorySettingsSliderItem
+                                icon={Users}
+                                color={BINDING_ACCENTS.voice}
+                                label="群聊总输入上限"
+                                desc="群聊成员较多，因此保留更大的总预算"
+                                value={config.groupContextTokenBudget}
+                                min={24000}
+                                max={96000}
+                                step={4000}
+                                onChange={value => saveContextNumber("groupContextTokenBudget", value, 24000, 96000)}
+                            />
+                            <MemorySettingsSliderItem
+                                icon={Clock}
+                                color={BINDING_ACCENTS.memory}
+                                label="私聊最近内容预算"
+                                desc="逐字保留的近期聊天和跨 App 事件；更早内容交给摘要"
+                                value={config.chatRecentTokenBudget}
+                                min={4000}
+                                max={32000}
+                                step={2000}
+                                onChange={value => saveContextNumber("chatRecentTokenBudget", value, 4000, 32000)}
+                            />
+                            <MemorySettingsSliderItem
+                                icon={Users}
+                                color={BINDING_ACCENTS.memory}
+                                label="群聊最近内容预算"
+                                desc="只影响群聊请求，不改变其他内置 App"
+                                value={config.groupRecentTokenBudget}
+                                min={8000}
+                                max={48000}
+                                step={2000}
+                                onChange={value => saveContextNumber("groupRecentTokenBudget", value, 8000, 48000)}
+                            />
+                            <MemorySettingsSliderItem
+                                icon={FileText}
+                                color={BINDING_ACCENTS.embedding}
+                                label="至少保留最近消息"
+                                desc="默认 10 条，约等于 5 轮；总上限不足时以总上限优先"
+                                value={config.minimumRecentMessages}
+                                min={4}
+                                max={20}
+                                step={2}
+                                onChange={value => saveContextNumber("minimumRecentMessages", value, 4, 20)}
+                            />
+                            <div className="menu-item">
+                                <MemorySettingsIcon icon={Brain} color={BINDING_ACCENTS.embedding} />
+                                <div className="menu-label-group">
+                                    <span className="menu-label">按会话滚动总结</span>
+                                    <span className="menu-desc">小批量总结移出近期窗口的内容，不重发整段旧历史</span>
+                                </div>
+                                <div className="menu-right">
+                                    <Toggle checked={config.rollingSummaryEnabled !== false} onChange={(value) => {
+                                        const next = { ...config, rollingSummaryEnabled: value };
+                                        setConfig(next);
+                                        saveMemoryConfig(next);
+                                    }} />
+                                </div>
+                            </div>
+                            {config.rollingSummaryEnabled !== false ? (
+                                <MemorySettingsSliderItem
+                                    icon={Brain}
+                                    color={BINDING_ACCENTS.embedding}
+                                    label="滚动总结间隔"
+                                    desc="每累计多少条移出窗口的消息更新一次摘要；默认 10 条"
+                                    value={config.rollingSummaryMessageInterval}
+                                    min={4}
+                                    max={30}
+                                    step={2}
+                                    onChange={value => saveContextNumber("rollingSummaryMessageInterval", value, 4, 30)}
+                                />
+                            ) : null}
+                        </>
+                    ) : null}
+                </div>
 
                 {/* Memory source filter — one entry row, full picker lives in a bottom sheet */}
                 <p className="menu-group-desc mx-2">记忆来源</p>

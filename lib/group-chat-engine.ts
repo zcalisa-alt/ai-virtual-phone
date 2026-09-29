@@ -68,7 +68,10 @@ import { loadMemoryConfig, incrementEventCounter } from "./memory-storage";
 import { retrieveCoreMemoriesForPrompt, retrieveMemoriesForPrompt } from "./memory-service";
 import { formatCoreMemories, formatLongTermMemories } from "./memory-injector";
 import { maybeRunSummarization } from "./memory-summarizer";
+import { maybeUpdateSessionContextSummary } from "./session-context-summary";
 import { prepareShortTermContext, prepareGroupShortTermContext } from "./short-term-assembler";
+import { createPromptMemoryConfig, resolvePromptContextPolicy } from "./context-optimizer";
+import { isBriefPersonaStale } from "./brief-persona";
 import { parseActionTags, dispatchActions } from "./action-parser";
 import { getCustomStickerExample, loadCustomStickers } from "./custom-sticker-storage";
 import { formatCustomAppChatDirectivesForPrompt } from "./custom-app-chat-directives";
@@ -331,12 +334,26 @@ async function buildGroupChatPromptMessages(
 
     const memConfig = loadMemoryConfig();
     const allWorldBooks = loadWorldBooks();
+    const enabledToolsForContext = options?.disableTools ? [] : getEnabledTools("group_chat");
+    const usesNativeActionsForContext = Boolean(nativeToolProtocolForConfig(config) && enabledToolsForContext.length > 0);
+    const resolvedContextPolicy = resolvePromptContextPolicy(memConfig, preset, "group_chat", {
+        nativeToolsEnabled: usesNativeActionsForContext,
+    });
+    const contextPolicy = activeAppTags.includes("group_chat")
+        ? resolvedContextPolicy
+        : { ...resolvedContextPolicy, enabled: false };
+    const promptMemConfig = createPromptMemoryConfig(memConfig, contextPolicy, participantIds.length);
 
     const now = new Date();
     const memberTimeContexts: Record<string, ReturnType<typeof buildCharacterTimeContext>> = {};
     const memberDataPromises = participantIds.map(async (charId): Promise<GroupMemberData | null> => {
         const character = charMap.get(charId);
         if (!character) return null;
+        const promptCharacter = contextPolicy.enabled
+            && character.briefPersona?.trim()
+            && !isBriefPersonaStale(character)
+            ? { ...character, persona: character.briefPersona.trim() }
+            : character;
         const memberTimeContext = buildCharacterTimeContext(character.timeZone, now);
         memberTimeContexts[charId] = memberTimeContext;
         const scheduleSummary = buildCalendarScheduleMarker("character", charId, getWeekStartIso(now));
@@ -350,18 +367,19 @@ async function buildGroupChatPromptMessages(
             excludeGroupSessionId: isOfflineMode ? undefined : session.id,
             excludeOfflineSessionId: options?.excludeOfflineSessionId,
             promptTimestampOptions: getPromptTimestampOptionsForTimeContext(memberTimeContext),
+            tokenBudget: contextPolicy.enabled ? contextPolicy.recentTokens : undefined,
         });
         let coreMemories = "", longTermMemories = "";
         try {
             const [coreResults, results] = await Promise.all([
-                retrieveCoreMemoriesForPrompt(charId, memConfig),
-                retrieveMemoriesForPrompt(charId, wbActivationContext, memConfig),
+                retrieveCoreMemoriesForPrompt(charId, promptMemConfig),
+                retrieveMemoriesForPrompt(charId, wbActivationContext, promptMemConfig),
             ]);
             coreMemories = formatCoreMemories(coreResults);
             longTermMemories = formatLongTermMemories(results);
         } catch { /* ignore */ }
         return {
-            character,
+            character: promptCharacter,
             worldBooks,
             scheduleSummary,
             currentSchedule,
@@ -384,8 +402,8 @@ async function buildGroupChatPromptMessages(
     );
     const groupPromptTimestampOptions = getPromptTimestampOptionsForTimeContext(groupTimeContext);
 
-    const enabledTools = options?.disableTools ? [] : getEnabledTools("group_chat");
-    const usesNativeActions = Boolean(nativeToolProtocolForConfig(config) && enabledTools.length > 0);
+    const enabledTools = enabledToolsForContext;
+    const usesNativeActions = usesNativeActionsForContext;
     const annotatedHistory = annotateGroupHistory(history, participantIds, userName);
     const {
         truncatedHistory: truncatedAnnotatedHistory,
@@ -397,6 +415,7 @@ async function buildGroupChatPromptMessages(
         excludeOfflineSessionId: options?.excludeOfflineSessionId,
         includeNativeToolHistory: usesNativeActions,
         promptTimestampOptions: groupPromptTimestampOptions,
+        tokenBudget: contextPolicy.enabled ? contextPolicy.recentTokens : undefined,
     });
     const promptHistory = applyVisionImagePromptLimit(
         truncatedAnnotatedHistory.map(msg => ({ ...msg })),
@@ -492,6 +511,11 @@ async function buildGroupChatPromptMessages(
         offlineBilingualInstruction,
         offlineSummaryTag: preset?.story_summary_tag?.trim() || "summary",
         nativeToolHistory: usesNativeActions,
+        contextBudget: contextPolicy.enabled ? {
+            maxInputTokens: contextPolicy.maxInputTokens,
+            minimumRecentMessages: contextPolicy.minimumRecentMessages,
+        } : undefined,
+        conversationSummary: contextPolicy.enabled ? session.contextSummary : undefined,
     });
     if (promptProfile?.output === "plain_text") {
         llmMessages.push({
@@ -1082,6 +1106,8 @@ export async function generateGroupChatCompletion(
 
     if (!options?.skipMemorySummarization) {
         scheduleGroupMemorySummarization(participantIds, chars, history, finalResults.length);
+        maybeUpdateSessionContextSummary(session.id, session.groupName || "群聊")
+            .catch(err => console.warn("[GroupChat] Rolling context summary failed:", err));
     }
 
     return finalResults;

@@ -66,6 +66,10 @@ export type ChatSession = {
      * 关掉就只调一次 API，那一轮没摘要（不进短期记忆的事件流）。按次计费的接口想省一半调用时关它。
      */
     offlineSummaryRetry?: boolean;
+    /** Rolling context summary used for prompt compression; original messages remain untouched. */
+    contextSummary?: string;
+    contextSummaryUntilMessageId?: string;
+    contextSummaryUpdatedAt?: string;
     // Group chat fields
     isGroup?: boolean;
     groupName?: string;

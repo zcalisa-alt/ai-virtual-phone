@@ -17,6 +17,7 @@ import { formatCharacterRelationsForPrompt } from "./character-world-storage";
 import { buildCharacterTimeContext, buildGroupTimeContext, type CharacterTimeContext } from "./character-time";
 import { formatShoppingPaymentRequestHistory } from "./shopping-payment-request";
 import { buildGroupAdminBracketText } from "./group-admin";
+import { estimateTokens } from "./token-counter";
 
 export type LLMMessageRole = "system" | "user" | "assistant" | "tool";
 export type LLMToolCallPayload = { id: string; name: string; args: Record<string, unknown>; thoughtSignature?: string };
@@ -134,7 +135,16 @@ export interface AssemblerInput {
     cocreateChapterIndex?: string;
     cocreateArchivedChapterContext?: string;
     cocreateWriterNotebook?: string;
+    /** Optional request-side cap. Stored history is never changed. */
+    contextBudget?: PromptBlockBudget;
+    /** Rolling summary for messages omitted from the recent verbatim window. */
+    conversationSummary?: string;
 }
+
+export type PromptBlockBudget = {
+    maxInputTokens: number;
+    minimumRecentMessages: number;
+};
 
 type PromptBlock = {
     text: string;
@@ -150,6 +160,104 @@ type PromptBlock = {
     toolCallId?: string;
     toolName?: string;
 };
+
+function estimatePromptBlockTokens(block: PromptBlock): number {
+    let total = estimateTokens(block.text) + 4;
+    if (block.reasoning) total += estimateTokens(block.reasoning);
+    if (block.toolCalls?.length) total += estimateTokens(JSON.stringify(block.toolCalls));
+    if (block.imageUrl) total += 128;
+    return total;
+}
+
+function historyMarkerKey(marker: string): string | null {
+    const match = marker.match(/^History \[(\d+)\]/);
+    return match ? `history:${match[1]}` : null;
+}
+
+/**
+ * Remove only copied short-term material, oldest first. Character cards, preset
+ * instructions, world books and other app-specific blocks stay untouched. If those
+ * fixed blocks alone exceed the budget we deliberately leave them intact rather than
+ * silently corrupting the role definition.
+ */
+function applyPromptBlockBudget(blocks: PromptBlock[], policy?: PromptBlockBudget): void {
+    if (!policy || !Number.isFinite(policy.maxInputTokens) || policy.maxInputTokens <= 0) return;
+
+    const costs = new Map<PromptBlock, number>();
+    let total = 2;
+    for (const block of blocks) {
+        const cost = estimatePromptBlockTokens(block);
+        costs.set(block, cost);
+        total += cost;
+    }
+    if (total <= policy.maxInputTokens) return;
+
+    const historyGroups = new Map<string, PromptBlock[]>();
+    for (const block of blocks) {
+        const key = historyMarkerKey(block.marker);
+        if (!key) continue;
+        const group = historyGroups.get(key) ?? [];
+        group.push(block);
+        historyGroups.set(key, group);
+    }
+
+    const orderedHistory = [...historyGroups.entries()]
+        .map(([key, group]) => ({ key, group, depth: Math.min(...group.map(item => item.depth)) }))
+        .sort((a, b) => a.depth - b.depth); // newest first (depth 1 is latest)
+    const nativeToolHistoryKeys = new Set(
+        orderedHistory
+            .filter(item => item.group.some(block => block.role === "tool" || Boolean(block.toolCalls?.length)))
+            .map(item => item.key),
+    );
+    const protectedKeys = new Set(
+        [
+            ...orderedHistory.slice(0, Math.max(2, policy.minimumRecentMessages)).map(item => item.key),
+            ...nativeToolHistoryKeys,
+        ],
+    );
+    const removed = new Set<PromptBlock>();
+
+    const removeGroup = (group: PromptBlock[]) => {
+        for (const block of group) {
+            if (removed.has(block)) continue;
+            removed.add(block);
+            total -= costs.get(block) ?? 0;
+        }
+    };
+
+    const primaryCandidates: Array<{ depth: number; group: PromptBlock[] }> = [];
+    for (const item of orderedHistory) {
+        if (!protectedKeys.has(item.key)) primaryCandidates.push({ depth: item.depth, group: item.group });
+    }
+    blocks.forEach(block => {
+        if (block.marker.startsWith("ShortTerm Event [")) {
+            primaryCandidates.push({ depth: block.depth, group: [block] });
+        }
+    });
+    primaryCandidates.sort((a, b) => b.depth - a.depth);
+    for (const candidate of primaryCandidates) {
+        if (total <= policy.maxInputTokens) break;
+        removeGroup(candidate.group);
+    }
+
+    // Extremely long recent messages may still exceed the cap. Preserve the latest
+    // user/assistant exchange, then trim the rest oldest-first as a safety valve.
+    if (total > policy.maxInputTokens) {
+        const emergencyCandidates = orderedHistory
+            .slice(2)
+            .filter(item => !nativeToolHistoryKeys.has(item.key))
+            .sort((a, b) => b.depth - a.depth);
+        for (const candidate of emergencyCandidates) {
+            if (total <= policy.maxInputTokens) break;
+            removeGroup(candidate.group);
+        }
+    }
+
+    if (removed.size > 0) {
+        const survivors = blocks.filter(block => !removed.has(block));
+        blocks.splice(0, blocks.length, ...survivors);
+    }
+}
 
 
 function resolveHistoryPromptRole(msg: ChatMessage): Exclude<LLMMessageRole, "tool"> {
@@ -1038,6 +1146,18 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
         });
     }
 
+    if (input.conversationSummary?.trim()) {
+        blocks.push({
+            text: `<conversation_summary>\n${input.conversationSummary.trim()}\n</conversation_summary>`,
+            role: "system",
+            depth: resolveBeforeHistoryDepth(history.length, input.unifiedRecentItems?.length),
+            order: 998,
+            marker: "conversationSummary",
+        });
+    }
+
+    applyPromptBlockBudget(blocks, input.contextBudget);
+
     // --- Sort: depth descending, then order ascending ---
     blocks.sort((a, b) => {
         if (b.depth !== a.depth) return b.depth - a.depth;
@@ -1622,6 +1742,10 @@ export interface GroupAssemblerInput {
     checkPhoneBilingualInstruction?: string;
     xiaohongshuBilingualInstruction?: string;
     nativeToolHistory?: boolean;
+    /** Optional request-side cap. Stored group history is never changed. */
+    contextBudget?: PromptBlockBudget;
+    /** Rolling summary for group messages omitted from the recent verbatim window. */
+    conversationSummary?: string;
 }
 
 function pushGroupChronologicalShortTermBlocks(params: {
@@ -2206,6 +2330,18 @@ export function assembleGroupPromptPayload(input: GroupAssemblerInput): LLMMessa
             });
         });
     }
+
+    if (input.conversationSummary?.trim()) {
+        blocks.push({
+            text: `<conversation_summary>\n${input.conversationSummary.trim()}\n</conversation_summary>`,
+            role: "system",
+            depth: beforeHistoryDepth,
+            order: 998,
+            marker: "conversationSummary",
+        });
+    }
+
+    applyPromptBlockBudget(blocks, input.contextBudget);
 
     // Sort: depth descending, then order ascending
     blocks.sort((a, b) => {

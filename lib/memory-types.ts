@@ -26,6 +26,18 @@ export type MemoryConfig = {
     shortTermTokenBudget: number;           // token limit for short-term event log
     coreMemoryTokenBudget: number;          // token limit for injected core memories
     longTermTokenBudget: number;            // token limit for injected long-term memories
+    /**
+     * Prompt-side context optimisation. This never deletes stored messages or memories;
+     * it only limits the material copied into a chat/group-chat request.
+     */
+    contextOptimizationEnabled: boolean;
+    chatContextTokenBudget: number;
+    groupContextTokenBudget: number;
+    chatRecentTokenBudget: number;
+    groupRecentTokenBudget: number;
+    minimumRecentMessages: number;
+    rollingSummaryEnabled: boolean;
+    rollingSummaryMessageInterval: number;
     summarizationPrompt: string;            // user-editable prompt template for memory summarization
     coreMemoryPrompt: string;               // user-editable prompt template for core-memory extraction
     vnSummaryPrompt: string;                // user-editable prompt for VN chapter summarization
@@ -113,6 +125,14 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
     shortTermTokenBudget: 100000,
     coreMemoryTokenBudget: 100000,
     longTermTokenBudget: 100000,
+    contextOptimizationEnabled: true,
+    chatContextTokenBudget: 32000,
+    groupContextTokenBudget: 48000,
+    chatRecentTokenBudget: 12000,
+    groupRecentTokenBudget: 18000,
+    minimumRecentMessages: 10,
+    rollingSummaryEnabled: true,
+    rollingSummaryMessageInterval: 10,
     summarizationPrompt: DEFAULT_SUMMARIZATION_PROMPT,
     coreMemoryPrompt: DEFAULT_CORE_MEMORY_PROMPT,
     vnSummaryPrompt: "",

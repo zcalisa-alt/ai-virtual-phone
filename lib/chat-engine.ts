@@ -59,7 +59,9 @@ import { loadMemoryConfig, incrementEventCounter } from "./memory-storage";
 import { retrieveCoreMemoriesForPrompt, retrieveMemoriesForPrompt } from "./memory-service";
 import { formatCoreMemories, formatLongTermMemories } from "./memory-injector";
 import { maybeRunSummarization } from "./memory-summarizer";
+import { maybeUpdateSessionContextSummary } from "./session-context-summary";
 import { prepareShortTermContext } from "./short-term-assembler";
+import { createPromptMemoryConfig, resolvePromptContextPolicy } from "./context-optimizer";
 import { parseActionTags, dispatchActions } from "./action-parser";
 import { findEnabledToolForSchema, getEnabledTools, type EnabledTool } from "./tool-storage";
 import { formatToolsForPrompt, formatToolSchema } from "./tool-prompt";
@@ -1842,12 +1844,22 @@ export async function buildChatPromptMessages(
     const toolsEnabled = enabledTools.length > 0
         && (options?.forceEnableTools === true || presetIncludesToolsMacro(preset, resolvedAppId, effectiveAppTags));
     const usesNativeActions = Boolean(toolsEnabled && nativeToolProtocolForConfig(config));
+    const resolvedContextPolicy = resolvePromptContextPolicy(memConfig, preset, "chat", {
+        nativeToolsEnabled: usesNativeActions,
+    });
+    // V1 deliberately scopes the new behaviour to the actual chat pipeline. Built-in
+    // apps that reuse this builder under another appId keep their legacy prompt shape.
+    const contextPolicy = resolvedAppId === "chat"
+        ? resolvedContextPolicy
+        : { ...resolvedContextPolicy, enabled: false };
+    const promptMemConfig = createPromptMemoryConfig(memConfig, contextPolicy);
     const { recentBlocks, truncatedHistory, wbActivationContext, unifiedRecentItems } = prepareShortTermContext(character.id, resolvedAppId, {
         history: historyForPrompt,
         includeDirectChatEntries: isOfflineMode,
         includeNativeToolHistory: usesNativeActions,
         excludeOfflineSessionId: options?.excludeOfflineSessionId,
         promptTimestampOptions,
+        tokenBudget: contextPolicy.enabled ? contextPolicy.recentTokens : undefined,
     });
     const promptHistory = applyVisionImagePromptLimit(
         truncatedHistory.map(msg => ({ ...msg })),
@@ -1861,8 +1873,8 @@ export async function buildChatPromptMessages(
     }
 
     const [memResults, coreResults, musicLocal, musicCloud] = await Promise.all([
-        retrieveMemoriesForPrompt(character.id, wbActivationContext, memConfig).catch(() => null),
-        retrieveCoreMemoriesForPrompt(character.id, memConfig).catch(() => null),
+        retrieveMemoriesForPrompt(character.id, wbActivationContext, promptMemConfig).catch(() => null),
+        retrieveCoreMemoriesForPrompt(character.id, promptMemConfig).catch(() => null),
         buildMusicLocalMacro(),
         buildMusicCloudMacro(),
     ]);
@@ -1936,6 +1948,11 @@ export async function buildChatPromptMessages(
         offlineBilingualInstruction,
         offlineSummaryTag: preset?.story_summary_tag?.trim() || "summary",
         nativeToolHistory: usesNativeActions,
+        contextBudget: contextPolicy.enabled ? {
+            maxInputTokens: contextPolicy.maxInputTokens,
+            minimumRecentMessages: contextPolicy.minimumRecentMessages,
+        } : undefined,
+        conversationSummary: contextPolicy.enabled ? session.contextSummary : undefined,
     });
     if (promptProfile?.output === "plain_text") {
         llmMessages.push({
@@ -2875,6 +2892,13 @@ async function generateChatCompletionCore(
             await maybeRunSummarization(character.id, character.name);
         } catch (err) {
             console.warn("[ChatEngine] Memory counter/summarization failed:", err);
+        }
+        if ((options?.appId ?? "chat") === "chat") {
+            try {
+                await maybeUpdateSessionContextSummary(session.id, character.name);
+            } catch (err) {
+                console.warn("[ChatEngine] Rolling context summary failed:", err);
+            }
         }
     })();
 

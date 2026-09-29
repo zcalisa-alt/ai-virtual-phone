@@ -48,7 +48,7 @@ export type LlmParsedResponse = {
     reasoning?: string;
     openRouterReasoningDetails?: unknown[];
     toolCalls: LlmToolCall[];
-    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    usage?: import("./api-log-store").ApiTokenUsage;
     raw: unknown;
 };
 

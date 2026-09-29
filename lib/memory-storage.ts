@@ -175,14 +175,39 @@ export async function getMemoryCountByType(
 
 // ── Config (localStorage for fast sync access) ──
 
+function clampConfigNumber(value: unknown, fallback: number, min: number, max: number): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function normalizeMemoryConfig(value: unknown): MemoryConfig {
+    const parsed = value && typeof value === "object" ? value as Partial<MemoryConfig> : {};
+    return {
+        ...DEFAULT_MEMORY_CONFIG,
+        ...parsed,
+        shortTermAllowedSources: {
+            ...DEFAULT_MEMORY_CONFIG.shortTermAllowedSources,
+            ...(parsed.shortTermAllowedSources ?? {}),
+        },
+        contextOptimizationEnabled: parsed.contextOptimizationEnabled !== false,
+        chatContextTokenBudget: clampConfigNumber(parsed.chatContextTokenBudget, 32000, 8000, 128000),
+        groupContextTokenBudget: clampConfigNumber(parsed.groupContextTokenBudget, 48000, 12000, 192000),
+        chatRecentTokenBudget: clampConfigNumber(parsed.chatRecentTokenBudget, 12000, 2000, 64000),
+        groupRecentTokenBudget: clampConfigNumber(parsed.groupRecentTokenBudget, 18000, 4000, 96000),
+        minimumRecentMessages: clampConfigNumber(parsed.minimumRecentMessages, 10, 2, 40),
+        rollingSummaryEnabled: parsed.rollingSummaryEnabled !== false,
+        rollingSummaryMessageInterval: clampConfigNumber(parsed.rollingSummaryMessageInterval, 10, 4, 40),
+    };
+}
+
 export function loadMemoryConfig(): MemoryConfig {
-    if (typeof window === "undefined") return { ...DEFAULT_MEMORY_CONFIG };
+    if (typeof window === "undefined") return normalizeMemoryConfig(DEFAULT_MEMORY_CONFIG);
     try {
         const raw = kvGet(CONFIG_KEY);
-        if (!raw) return { ...DEFAULT_MEMORY_CONFIG };
-        return { ...DEFAULT_MEMORY_CONFIG, ...JSON.parse(raw) };
+        if (!raw) return normalizeMemoryConfig(DEFAULT_MEMORY_CONFIG);
+        return normalizeMemoryConfig(JSON.parse(raw));
     } catch {
-        return { ...DEFAULT_MEMORY_CONFIG };
+        return normalizeMemoryConfig(DEFAULT_MEMORY_CONFIG);
     }
 }
 

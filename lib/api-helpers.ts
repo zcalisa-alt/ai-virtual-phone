@@ -209,7 +209,7 @@ export async function simpleLLMCall(
     }
 }
 
-export function extractUsage(data: Record<string, unknown>): { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined {
+export function extractUsage(data: Record<string, unknown>): import("./api-log-store").ApiTokenUsage | undefined {
     if (!data) return undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const d = data as any;
@@ -219,6 +219,8 @@ export function extractUsage(data: Record<string, unknown>): { prompt_tokens?: n
         prompt_tokens: usage.prompt_tokens ?? usage.input_tokens ?? usage.promptTokenCount,
         completion_tokens: usage.completion_tokens ?? usage.output_tokens ?? usage.candidatesTokenCount,
         total_tokens: usage.total_tokens ?? usage.totalTokenCount,
+        prompt_cache_hit_tokens: usage.prompt_cache_hit_tokens ?? usage.cache_read_input_tokens,
+        prompt_cache_miss_tokens: usage.prompt_cache_miss_tokens ?? usage.cache_creation_input_tokens,
     };
 }
 

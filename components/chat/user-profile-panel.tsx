@@ -766,6 +766,9 @@ function ApiLogViewer({ onBack }: { onBack: () => void }) {
                                                     {log.usage && (
                                                         <span>Tokens: {log.usage.prompt_tokens ?? "—"} / {log.usage.completion_tokens ?? "—"} / {log.usage.total_tokens ?? "—"}</span>
                                                     )}
+                                                    {log.usage && (log.usage.prompt_cache_hit_tokens !== undefined || log.usage.prompt_cache_miss_tokens !== undefined) && (
+                                                        <span>缓存 命中/未命中: {log.usage.prompt_cache_hit_tokens ?? "—"} / {log.usage.prompt_cache_miss_tokens ?? "—"}</span>
+                                                    )}
                                                 </div>
                                             </div>
                                             <div className="menu-right">
