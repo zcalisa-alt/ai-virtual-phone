@@ -19,6 +19,8 @@ import type { UserIdentity } from "@/components/settings/user-identity";
 import {
     createBuiltinPreset,
     BUILTIN_CACHE_ORDER_VERSION,
+    BUILTIN_NATURAL_LANGUAGE_PROMPT_IDS,
+    BUILTIN_NATURAL_LANGUAGE_VERSION,
     BUILTIN_PRESET_VERSION,
 } from "./builtin-preset";
 import {
@@ -203,6 +205,46 @@ function migrateBuiltinCacheOrder(preset: PresetConfig): PresetConfig {
     };
 }
 
+/**
+ * Add the scoped natural-expression guardrails without replacing any existing
+ * built-in prompt text. Users often edit the built-in preset directly, so this
+ * migration only appends the new prompt entries and inserts their order slots.
+ */
+function migrateBuiltinNaturalLanguage(preset: PresetConfig): PresetConfig {
+    if ((preset.builtInNaturalLanguageVersion ?? 0) >= BUILTIN_NATURAL_LANGUAGE_VERSION) return preset;
+
+    const fresh = createBuiltinPreset();
+    const naturalIds = new Set<string>(BUILTIN_NATURAL_LANGUAGE_PROMPT_IDS);
+    const existingPromptIds = new Set((preset.prompts ?? []).map(prompt => prompt.identifier));
+    const addedPrompts = (fresh.prompts ?? []).filter(prompt => (
+        naturalIds.has(prompt.identifier) && !existingPromptIds.has(prompt.identifier)
+    ));
+    const order = [...(preset.prompt_order ?? [])];
+    const freshOrder = fresh.prompt_order ?? [];
+
+    for (const promptId of BUILTIN_NATURAL_LANGUAGE_PROMPT_IDS) {
+        if (order.some(entry => entry.identifier === promptId)) continue;
+        const freshIndex = freshOrder.findIndex(entry => entry.identifier === promptId);
+        let insertIndex = order.length;
+        for (let index = freshIndex - 1; index >= 0; index -= 1) {
+            const previousId = freshOrder[index]?.identifier;
+            const previousIndex = order.findIndex(entry => entry.identifier === previousId);
+            if (previousIndex >= 0) {
+                insertIndex = previousIndex + 1;
+                break;
+            }
+        }
+        order.splice(insertIndex, 0, { identifier: promptId, enabled: true });
+    }
+
+    return {
+        ...preset,
+        prompts: [...(preset.prompts ?? []), ...addedPrompts],
+        prompt_order: order,
+        builtInNaturalLanguageVersion: BUILTIN_NATURAL_LANGUAGE_VERSION,
+    };
+}
+
 
 // --- Presets ──────────────────────────────────────────
 
@@ -227,9 +269,13 @@ export function loadPresets(): PresetConfig[] {
             presets[idx] = fresh;
             savePresets(presets);
             shouldPersistCleanup = false;
-        } else if ((existingBuiltin.builtInCacheOrderVersion ?? 0) < BUILTIN_CACHE_ORDER_VERSION) {
+        } else if (
+            (existingBuiltin.builtInCacheOrderVersion ?? 0) < BUILTIN_CACHE_ORDER_VERSION
+            || (existingBuiltin.builtInNaturalLanguageVersion ?? 0) < BUILTIN_NATURAL_LANGUAGE_VERSION
+        ) {
             const idx = presets.indexOf(existingBuiltin);
-            presets[idx] = migrateBuiltinCacheOrder(existingBuiltin);
+            const cacheMigrated = migrateBuiltinCacheOrder(existingBuiltin);
+            presets[idx] = migrateBuiltinNaturalLanguage(cacheMigrated);
             savePresets(presets);
             shouldPersistCleanup = false;
         } else if (shouldPersistCleanup) {

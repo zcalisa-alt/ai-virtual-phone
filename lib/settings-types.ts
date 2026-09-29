@@ -70,6 +70,8 @@ export type PresetConfig = SettingItemMeta & {
     builtInVersion?: number;
     /** Targeted built-in prompt-order migrations that preserve user-edited prompt content. */
     builtInCacheOrderVersion?: number;
+    /** Targeted natural-expression prompt migrations that preserve user-edited prompt content. */
+    builtInNaturalLanguageVersion?: number;
     temperature: number;
     top_p: number;
     top_k: number;

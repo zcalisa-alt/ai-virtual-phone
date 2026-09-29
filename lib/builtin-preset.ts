@@ -8,6 +8,43 @@ import { getCheckPhonePromptTags } from "./checkphone-config";
 export const BUILTIN_PRESET_ID = "builtin_default_v1";
 export const BUILTIN_PRESET_VERSION = 265; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
 export const BUILTIN_CACHE_ORDER_VERSION = 1;
+export const BUILTIN_NATURAL_LANGUAGE_VERSION = 1;
+
+export const BUILTIN_NATURAL_LANGUAGE_PROMPT_IDS = [
+    "natural_expression_chat",
+    "natural_expression_moments",
+    "natural_expression_group_chat",
+    "natural_expression_diary",
+    "natural_expression_xiaohongshu",
+    "natural_expression_adventure",
+    "natural_expression_add_friend",
+    "natural_expression_reading",
+    "natural_expression_interview",
+] as const;
+
+const NATURAL_EXPRESSION_BASELINE = [
+    "<natural_expression_baseline>",
+    "本节只约束自由表达的语言质感，不改变上方规定的输出格式、标签、动作协议或任务目标。若其他要求提到“简短”“碎片化”“去精致化”，只把它理解为篇幅与聊天节奏，不要把中文语法也切碎。",
+    "- 默认使用当前场景里真实的人会说、会写的自然汉语。句子可以短，但要有正常语序和必要成分；克制、寡言的角色应少说、少解释，而不是把每句话压成两三个词的电报体。",
+    "- 不要连续堆叠刻意停顿的短句或口号式断句。只有人物确实被打断、迟疑或情绪失控时，才偶尔使用残句。",
+    "- 不要把“这句不接”“这条记着”“我不问”“我不催”“我不认”“别问第二遍”等对话管理话术当作通用反应；仅在具体语境真的需要表达该含义时自然地说出来。",
+    "- 回应必须贴住对方刚刚说的具体事情、人物关系和当下处境。用具体观察、想法或行动体现性格，避免任何角色都能套用的冷硬模板。",
+    "- 内心活动应写具体感受、联想、矛盾或没有说出口的原因，不要写成‘下一句要不要接、要不要追问、先记着’之类的回复操作指令。",
+    "</natural_expression_baseline>",
+].join("\n");
+
+function createNaturalExpressionPrompt(identifier: string, name: string, tags: string[]) {
+    return {
+        identifier,
+        name,
+        role: "system" as const,
+        content: NATURAL_EXPRESSION_BASELINE,
+        injection_position: 0,
+        injection_depth: 0,
+        enabled: true,
+        tags,
+    };
+}
 
 export function createBuiltinPreset(): PresetConfig {
     const now = Date.now();
@@ -20,6 +57,7 @@ export function createBuiltinPreset(): PresetConfig {
         builtIn: true,
         builtInVersion: BUILTIN_PRESET_VERSION,
         builtInCacheOrderVersion: BUILTIN_CACHE_ORDER_VERSION,
+        builtInNaturalLanguageVersion: BUILTIN_NATURAL_LANGUAGE_VERSION,
         temperature: 0.8,
         top_p: 1,
         top_k: 0,
@@ -65,29 +103,36 @@ export function createBuiltinPreset(): PresetConfig {
             { identifier: "chat_period_care", enabled: true },
             { identifier: "chat_voice_format", enabled: true },
             { identifier: "chat_video_format", enabled: true },
+            { identifier: "natural_expression_chat", enabled: true },
             { identifier: "moments_post", enabled: true },
             { identifier: "moments_comment", enabled: true },
             { identifier: "moments_npc_reaction", enabled: true },
             { identifier: "moments_npc_reply", enabled: true },
             { identifier: "moments_reply", enabled: true },
             { identifier: "moments_optional_actions", enabled: true },
+            { identifier: "natural_expression_moments", enabled: true },
             { identifier: "group_chat_format", enabled: true },
             { identifier: "group_voice_call_format", enabled: true },
             { identifier: "group_video_call_format", enabled: true },
             { identifier: "group_chat_offline_format", enabled: true },
             { identifier: "group_chat_optional_actions", enabled: true },
             { identifier: "group_spectator_context", enabled: true },
+            { identifier: "natural_expression_group_chat", enabled: true },
             { identifier: "calendar_plan_generation", enabled: true },
             { identifier: "diary_entry_generation", enabled: true },
             { identifier: "diary_notewall_generation", enabled: true },
             { identifier: "diary_notewall_reply", enabled: true },
+            { identifier: "natural_expression_diary", enabled: true },
             { identifier: "xiaohongshu_bilingual_text", enabled: true },
             { identifier: "xiaohongshu_character_activity", enabled: true },
             { identifier: "xiaohongshu_user_post_reaction", enabled: true },
             { identifier: "xiaohongshu_comment_reply", enabled: true },
             { identifier: "xiaohongshu_mention_reply", enabled: true },
+            { identifier: "natural_expression_xiaohongshu", enabled: true },
             { identifier: "adventure_react", enabled: true },
+            { identifier: "natural_expression_adventure", enabled: true },
             { identifier: "add_friend_prompt", enabled: true },
+            { identifier: "natural_expression_add_friend", enabled: true },
             { identifier: "checkphone_manifest", enabled: true },
             { identifier: "checkphone_chat", enabled: true },
             { identifier: "checkphone_phone", enabled: true },
@@ -117,16 +162,27 @@ export function createBuiltinPreset(): PresetConfig {
             { identifier: "dwelling_item_detail", enabled: true },
             { identifier: "reading_annotation", enabled: true },
             { identifier: "reading_discuss", enabled: true },
+            { identifier: "natural_expression_reading", enabled: true },
             { identifier: "cocreate_write", enabled: true },
             { identifier: "cocreate_discuss", enabled: true },
             { identifier: "cocreate_tools_write", enabled: true },
             { identifier: "cocreate_tools_read", enabled: true },
             { identifier: "interview_character_answer", enabled: true },
+            { identifier: "natural_expression_interview", enabled: true },
             { identifier: "checkphone_user_fact_guard", enabled: true },
             { identifier: "checkphone_bilingual_text", enabled: true },
         ],
 
         prompts: [
+            createNaturalExpressionPrompt("natural_expression_chat", "▸ 自然表达底线（聊天）", ["chat"]),
+            createNaturalExpressionPrompt("natural_expression_moments", "▸ 自然表达底线（朋友圈）", ["moments"]),
+            createNaturalExpressionPrompt("natural_expression_group_chat", "▸ 自然表达底线（群聊）", ["group_chat"]),
+            createNaturalExpressionPrompt("natural_expression_diary", "▸ 自然表达底线（日记）", ["diary"]),
+            createNaturalExpressionPrompt("natural_expression_xiaohongshu", "▸ 自然表达底线（小红书）", ["xiaohongshu"]),
+            createNaturalExpressionPrompt("natural_expression_adventure", "▸ 自然表达底线（冒险）", ["adventure"]),
+            createNaturalExpressionPrompt("natural_expression_add_friend", "▸ 自然表达底线（加好友）", ["add_friend"]),
+            createNaturalExpressionPrompt("natural_expression_reading", "▸ 自然表达底线（阅读）", ["reading"]),
+            createNaturalExpressionPrompt("natural_expression_interview", "▸ 自然表达底线（采访回答）", ["interview_magazine", "answer"]),
             {
                 identifier: "chat_immersion_instruction",
                 name: "▸ 微信体沉浸指令",
