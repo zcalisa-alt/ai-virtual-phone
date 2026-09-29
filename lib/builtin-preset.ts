@@ -8,7 +8,7 @@ import { getCheckPhonePromptTags } from "./checkphone-config";
 export const BUILTIN_PRESET_ID = "builtin_default_v1";
 export const BUILTIN_PRESET_VERSION = 265; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
 export const BUILTIN_CACHE_ORDER_VERSION = 1;
-export const BUILTIN_NATURAL_LANGUAGE_VERSION = 1;
+export const BUILTIN_NATURAL_LANGUAGE_VERSION = 2;
 
 export const BUILTIN_NATURAL_LANGUAGE_PROMPT_IDS = [
     "natural_expression_chat",
@@ -33,12 +33,27 @@ const NATURAL_EXPRESSION_BASELINE = [
     "</natural_expression_baseline>",
 ].join("\n");
 
+export const GROUP_CHAT_NATURAL_ADDENDUM = [
+    "<group_chat_natural_interaction_v2>",
+    "本节优先于群聊条目中任何关于固定字数、强制拆句、固定发言轮数或强制变换发言顺序的旧要求。不要为了显得像群聊而故意切碎正常中文。",
+    "- 先判断当前是线上群聊、线下同场景，还是正在通话，再决定谁有资格参与。不要预设每个角色都必须回应，也不要预设只能有一两个人回应；由在场性、可用性、话题相关性与人物主动性自然决定。",
+    "- 线下场景：只有与用户处于同一地点、已明确到场或刚刚进入场景的角色可以当场说话。异地角色不能突然出现，也不能知道自己没有见证的现场信息。",
+    "- 线上群聊：地理位置不同不妨碍发消息；是否及时回复主要由角色当前日程、是否在忙、是否看见消息和聊天习惯决定。忙碌角色可以晚回、漏看或稍后接话，但不要机械地给每个忙碌角色都编一个延迟理由。",
+    "- 语音或视频通话：已经接通的参与者可以远程即时回应；未接通者仍受日程和可用性约束。日程不明确时，不要凭空判定角色缺席。",
+    "- 发言顺序只需符合真实对话承接，不得为了与上一轮不同而重排。一个角色可以连续说两句，也可以沉默；有新信息的人先说，别人只在确实有内容可补充时接话。",
+    "- 不要让多名角色依次复述、改写或放大同一条信息。普通生活细节不得无依据升级成审问、监控、占有、威胁或集体分析；除非既有人设与情节已经明确支持这种反应。",
+    "- 情绪、玩笑、冲突和亲密感都必须从当前事实与人物关系自然产生，不要把‘有梗’‘碎片化’‘竞争’当成每轮必须完成的表演指标。",
+    "</group_chat_natural_interaction_v2>",
+].join("\n");
+
 function createNaturalExpressionPrompt(identifier: string, name: string, tags: string[]) {
     return {
         identifier,
         name,
         role: "system" as const,
-        content: NATURAL_EXPRESSION_BASELINE,
+        content: identifier === "natural_expression_group_chat"
+            ? `${NATURAL_EXPRESSION_BASELINE}\n\n${GROUP_CHAT_NATURAL_ADDENDUM}`
+            : NATURAL_EXPRESSION_BASELINE,
         injection_position: 0,
         injection_depth: 0,
         enabled: true,
@@ -1043,21 +1058,18 @@ export function createBuiltinPreset(): PresetConfig {
                     "## 规则",
                     "- Each character's tone and wording must match their own persona. Information inside each <member name> block is independent. Characters have information gaps. Never let one character reveal content from another character's <member name> block. No omniscient perspective.",
                     "- Do not use asterisks (*) or parentheses to wrap action descriptions, expressions, or narration.",
-                    "- The group can be jealous, competitive, passive-aggressive, or tense. The atmosphere does not need to be harmonious.",
-                    "- Not every character must speak. Decide naturally who joins based on the topic. Multiple rounds of arguing or back-and-forth are allowed. There is no need to let each character speak only once.",
-                    "- Unless there is a special reason, messages should stay short.",
-                    "- **Style**: Messages should mainly use short sentences. A single message should usually stay within 15 Chinese characters. If longer, split it into multiple short messages unless there is a strong reason not to.",
+                    "- Jealousy, competition, passive aggression, or tension may appear only when the established relationship and current event genuinely support them; they are not default group-chat atmosphere.",
+                    "- Not every character must speak. Decide naturally who joins from the channel, current schedule, presence, topic relevance, and personality. Do not force a fixed number of speakers or rounds.",
+                    "- Let message length follow the speaker and the content. A reserved character may say less, but do not force normal Chinese into a fixed character limit or split a complete sentence into fragments.",
                     "- Stay realistic to the character. No greasy domineering-CEO behavior, no stiff unnatural tone, and keep the chat grounded in believable real-life interaction.",
                     "- Freely choose from the output items below, but you must follow the required format strictly, otherwise the system will fail to recognize the output.",
                     "- After {{user}} or a character sends a transfer, red packet, or payment request, use the proper accept or decline instruction in time.",
                     "- Do not output the time. The system will handle time display automatically.",
                     "",
                     "##核心演绎规则",
-                    "- **顺序不可机械化，角色的发言必须穿插回复，严禁机械顺序发言，每次输出前必须自检，否则作废**",
-                    "A➡️B➡️A➡️C➡️C➡️B ➡️A 优于",
-                    "A➡️A➡️B➡️B➡️C➡️C",
-                    "- **连续轮次的发言顺序不得相同，每一轮的顺序都必须发生变化**：尤其本轮第一个开口的角色不要和上一轮相同；穿插次序也要换。例如上一轮是 A➡️B➡️A➡️B➡️C，下一轮就要换成不同顺序，如 C➡️A➡️B➡️A。每次输出前对照上一轮自检，若顺序雷同必须重排。",
-                    "- 轻松、幽默、有趣、有梗，碎片化、口语化",
+                    "- 发言顺序跟随谁看见消息、谁在场、谁有话可说以及对话的自然承接。不要为了制造穿插感而强制换顺序或重排。",
+                    "- 线上、线下与通话的参与资格必须符合当前日程和地点；具体规则以本预设中的“群聊自然互动”条目为准。",
+                    "- 语言可以轻松、幽默或口语化，但这些不是每轮必须完成的指标；首先保证自然、具体且符合人物。",
                     "- 话题自然延伸互动，聊天的主题可能是发散、拓展、非线形的，话题可以随意穿插，体现群聊中多人互动的思维跳跃性。",
                     "- 去{{user}}中心化，可以表现出对{{user}}的关注，但不应仅以回应{{user}}为目标，互相之间应该接话、展开话题",
                     "- 当{{user}}抛出问题的时候，不要所有人都回应，有人回应，有人接话/讽刺/调侃/捧场。",

@@ -35,12 +35,12 @@ export function resolvePromptContextPolicy(
     options?: { nativeToolsEnabled?: boolean },
 ): PromptContextPolicy {
     const configuredTotal = mode === "group_chat"
-        ? finitePositive(config.groupContextTokenBudget, 48000)
+        ? finitePositive(config.groupContextTokenBudget, 32000)
         : mode === "moments"
             ? 24000
             : finitePositive(config.chatContextTokenBudget, 32000);
     const configuredRecent = mode === "group_chat"
-        ? finitePositive(config.groupRecentTokenBudget, 18000)
+        ? finitePositive(config.groupRecentTokenBudget, 10000)
         : mode === "moments"
             ? 6000
             : finitePositive(config.chatRecentTokenBudget, 12000);

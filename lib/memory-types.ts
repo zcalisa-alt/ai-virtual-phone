@@ -31,6 +31,7 @@ export type MemoryConfig = {
      * it only limits the material copied into a chat/group-chat request.
      */
     contextOptimizationEnabled: boolean;
+    contextOptimizationVersion?: number;
     chatContextTokenBudget: number;
     groupContextTokenBudget: number;
     chatRecentTokenBudget: number;
@@ -126,10 +127,11 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
     coreMemoryTokenBudget: 100000,
     longTermTokenBudget: 100000,
     contextOptimizationEnabled: true,
+    contextOptimizationVersion: 2,
     chatContextTokenBudget: 32000,
-    groupContextTokenBudget: 48000,
+    groupContextTokenBudget: 32000,
     chatRecentTokenBudget: 12000,
-    groupRecentTokenBudget: 18000,
+    groupRecentTokenBudget: 10000,
     minimumRecentMessages: 10,
     rollingSummaryEnabled: true,
     rollingSummaryMessageInterval: 10,

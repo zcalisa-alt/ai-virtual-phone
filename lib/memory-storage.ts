@@ -182,6 +182,13 @@ function clampConfigNumber(value: unknown, fallback: number, min: number, max: n
 
 function normalizeMemoryConfig(value: unknown): MemoryConfig {
     const parsed = value && typeof value === "object" ? value as Partial<MemoryConfig> : {};
+    const shouldMigrateGroupDefaults = (parsed.contextOptimizationVersion ?? 0) < 2;
+    const groupContextTokenBudget = shouldMigrateGroupDefaults && parsed.groupContextTokenBudget === 48000
+        ? 32000
+        : parsed.groupContextTokenBudget;
+    const groupRecentTokenBudget = shouldMigrateGroupDefaults && parsed.groupRecentTokenBudget === 18000
+        ? 10000
+        : parsed.groupRecentTokenBudget;
     return {
         ...DEFAULT_MEMORY_CONFIG,
         ...parsed,
@@ -190,10 +197,11 @@ function normalizeMemoryConfig(value: unknown): MemoryConfig {
             ...(parsed.shortTermAllowedSources ?? {}),
         },
         contextOptimizationEnabled: parsed.contextOptimizationEnabled !== false,
+        contextOptimizationVersion: 2,
         chatContextTokenBudget: clampConfigNumber(parsed.chatContextTokenBudget, 32000, 8000, 128000),
-        groupContextTokenBudget: clampConfigNumber(parsed.groupContextTokenBudget, 48000, 12000, 192000),
+        groupContextTokenBudget: clampConfigNumber(groupContextTokenBudget, 32000, 12000, 192000),
         chatRecentTokenBudget: clampConfigNumber(parsed.chatRecentTokenBudget, 12000, 2000, 64000),
-        groupRecentTokenBudget: clampConfigNumber(parsed.groupRecentTokenBudget, 18000, 4000, 96000),
+        groupRecentTokenBudget: clampConfigNumber(groupRecentTokenBudget, 10000, 4000, 96000),
         minimumRecentMessages: clampConfigNumber(parsed.minimumRecentMessages, 10, 2, 40),
         rollingSummaryEnabled: parsed.rollingSummaryEnabled !== false,
         rollingSummaryMessageInterval: clampConfigNumber(parsed.rollingSummaryMessageInterval, 10, 4, 40),

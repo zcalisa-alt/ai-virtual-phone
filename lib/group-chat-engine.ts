@@ -437,12 +437,14 @@ async function buildGroupChatPromptMessages(
         : "无可用表情包，该功能不可用";
     const firstExample = members.map(m => getCustomStickerExample(m.character.id)).find(Boolean) || "";
     const [musicLocal, musicCloud] = await Promise.all([buildMusicLocalMacro(), buildMusicCloudMacro()]);
-    const activeMemberSchedules = members
-        .map(m => ({ name: m.character.name, schedule: m.currentSchedule?.trim() || "" }))
-        .filter(item => item.schedule && item.schedule !== "无");
-    const currentSchedule = activeMemberSchedules.length > 0
-        ? activeMemberSchedules.map(item => `${item.name}：${item.schedule}`).join("；")
-        : "无";
+    const userCurrentSchedule = getCurrentCalendarScheduleForPrompt("user", "self", now);
+    const participantSchedules = [
+        { name: `${userName}(用户)`, schedule: userCurrentSchedule?.trim() || "无" },
+        ...members.map(m => ({ name: m.character.name, schedule: m.currentSchedule?.trim() || "无" })),
+    ];
+    const currentSchedule = participantSchedules
+        .map(item => `${item.name}：${item.schedule && item.schedule !== "无" ? item.schedule : "无明确安排"}`)
+        .join("；");
     const musicOnlineHint = isNeteaseConfigured() ? "- 你可以推荐任何歌曲，系统会在线搜索并播放。不局限于用户本地音乐库。\n" : "\n";
     const pluginPrompt = await runChatPluginTransform("prompt.system", {
         sessionId: session.id,

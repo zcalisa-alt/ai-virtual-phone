@@ -19,6 +19,7 @@ import type { UserIdentity } from "@/components/settings/user-identity";
 import {
     createBuiltinPreset,
     BUILTIN_CACHE_ORDER_VERSION,
+    GROUP_CHAT_NATURAL_ADDENDUM,
     BUILTIN_NATURAL_LANGUAGE_PROMPT_IDS,
     BUILTIN_NATURAL_LANGUAGE_VERSION,
     BUILTIN_PRESET_VERSION,
@@ -213,6 +214,7 @@ function migrateBuiltinCacheOrder(preset: PresetConfig): PresetConfig {
 function migrateBuiltinNaturalLanguage(preset: PresetConfig): PresetConfig {
     if ((preset.builtInNaturalLanguageVersion ?? 0) >= BUILTIN_NATURAL_LANGUAGE_VERSION) return preset;
 
+    const previousVersion = preset.builtInNaturalLanguageVersion ?? 0;
     const fresh = createBuiltinPreset();
     const naturalIds = new Set<string>(BUILTIN_NATURAL_LANGUAGE_PROMPT_IDS);
     const existingPromptIds = new Set((preset.prompts ?? []).map(prompt => prompt.identifier));
@@ -237,9 +239,33 @@ function migrateBuiltinNaturalLanguage(preset: PresetConfig): PresetConfig {
         order.splice(insertIndex, 0, { identifier: promptId, enabled: true });
     }
 
+    const legacyGroupPromptReplacements: Array<[string, string]> = [
+        ["- The group can be jealous, competitive, passive-aggressive, or tense. The atmosphere does not need to be harmonious.", "- Jealousy, competition, passive aggression, or tension may appear only when the established relationship and current event genuinely support them; they are not default group-chat atmosphere."],
+        ["- Not every character must speak. Decide naturally who joins based on the topic. Multiple rounds of arguing or back-and-forth are allowed. There is no need to let each character speak only once.", "- Not every character must speak. Decide naturally who joins from the channel, current schedule, presence, topic relevance, and personality. Do not force a fixed number of speakers or rounds."],
+        ["- Unless there is a special reason, messages should stay short.\n- **Style**: Messages should mainly use short sentences. A single message should usually stay within 15 Chinese characters. If longer, split it into multiple short messages unless there is a strong reason not to.", "- Let message length follow the speaker and the content. A reserved character may say less, but do not force normal Chinese into a fixed character limit or split a complete sentence into fragments."],
+        ["- **顺序不可机械化，角色的发言必须穿插回复，严禁机械顺序发言，每次输出前必须自检，否则作废**\nA➡️B➡️A➡️C➡️C➡️B ➡️A 优于\nA➡️A➡️B➡️B➡️C➡️C\n- **连续轮次的发言顺序不得相同，每一轮的顺序都必须发生变化**：尤其本轮第一个开口的角色不要和上一轮相同；穿插次序也要换。例如上一轮是 A➡️B➡️A➡️B➡️C，下一轮就要换成不同顺序，如 C➡️A➡️B➡️A。每次输出前对照上一轮自检，若顺序雷同必须重排。\n- 轻松、幽默、有趣、有梗，碎片化、口语化", "- 发言顺序跟随谁看见消息、谁在场、谁有话可说以及对话的自然承接。不要为了制造穿插感而强制换顺序或重排。\n- 线上、线下与通话的参与资格必须符合当前日程和地点；具体规则以本预设中的“群聊自然互动”条目为准。\n- 语言可以轻松、幽默或口语化，但这些不是每轮必须完成的指标；首先保证自然、具体且符合人物。"],
+    ];
+    const migratedPrompts = [...(preset.prompts ?? []), ...addedPrompts].map(prompt => {
+        if (previousVersion >= 2) return prompt;
+        if (prompt.identifier === "natural_expression_group_chat") {
+            const content = prompt.content.includes("<group_chat_natural_interaction_v2>")
+                ? prompt.content
+                : `${prompt.content.trim()}\n\n${GROUP_CHAT_NATURAL_ADDENDUM}`;
+            return { ...prompt, content };
+        }
+        if (prompt.identifier === "group_chat_format") {
+            let content = prompt.content;
+            for (const [legacy, replacement] of legacyGroupPromptReplacements) {
+                content = content.replace(legacy, replacement);
+            }
+            return { ...prompt, content };
+        }
+        return prompt;
+    });
+
     return {
         ...preset,
-        prompts: [...(preset.prompts ?? []), ...addedPrompts],
+        prompts: migratedPrompts,
         prompt_order: order,
         builtInNaturalLanguageVersion: BUILTIN_NATURAL_LANGUAGE_VERSION,
     };
