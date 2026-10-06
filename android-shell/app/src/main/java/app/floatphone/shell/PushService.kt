@@ -82,6 +82,11 @@ class PushService : Service() {
     private fun connectionLoop() {
         var backoffSec = 5L
         while (!stopped) {
+            if (LocalPushConfig.enabled(this)) {
+                runCatching { pollLocalPush() }.onFailure { updateKeepAlive("腾讯云连接待重试") }
+                sleepSec(15)
+                continue
+            }
             val config = fetchConfig()
             if (config == null) {
                 updateKeepAlive("未登录或站点不可达，稍后重试")
@@ -94,6 +99,32 @@ class PushService : Service() {
             sleepSec(if (closedNormally) 3 else backoffSec)
             backoffSec = (backoffSec * 2).coerceAtMost(120)
             if (closedNormally) backoffSec = 5
+        }
+    }
+
+    private fun pollLocalPush() {
+        val token = LocalPushConfig.token(this) ?: return
+        val after = LocalPushConfig.sequence(this)
+        val request = Request.Builder()
+            .url("${MainActivity.SITE_URL}/api/local-push?action=notifications&after=$after")
+            .header("x-float-push-key", token).build()
+        client.newBuilder().callTimeout(25, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build().newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Push HTTP ${response.code}")
+            val value = JSONObject(response.body?.string() ?: return)
+            val rows = value.optJSONArray("notifications") ?: return
+            updateKeepAlive("腾讯云已连接，等待角色消息")
+            LocalPushConfig.seen(this, after)
+            for (index in 0 until rows.length()) {
+                val body = rows.optJSONObject(index) ?: continue
+                val sequence = body.optLong("sequence")
+                if (sequence <= LocalPushConfig.sequence(this)) continue
+                val title = body.optString("title").ifEmpty { "Float" }
+                if (body.optString("kind") == "call") {
+                    val shown = runCatching { showIncomingCallNotification(body.optString("characterName").ifEmpty { title },body.optString("sessionId"),System.currentTimeMillis()) }.isSuccess
+                    if (!shown) showMessageNotification(title, body.optString("body"))
+                } else showMessageNotification(title, body.optString("body"))
+                LocalPushConfig.seen(this, sequence)
+            }
         }
     }
 

@@ -35,7 +35,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         val SITE_URL: String = BuildConfig.SITE_URL
-        const val VERSION = "1.0.0"
+        const val VERSION = "1.1.0"
         /** 来电接听等场景的站内深链（必须以 SITE_URL 开头，否则忽略） */
         const val EXTRA_OPEN_URL = "open_url"
     }
@@ -220,6 +220,22 @@ class MainActivity : AppCompatActivity() {
     inner class ShellBridge {
         @JavascriptInterface
         fun getVersion(): String = VERSION
+
+        @JavascriptInterface
+        fun configureLocalPush(token: String, enabled: Boolean) {
+            LocalPushConfig.configure(this@MainActivity, token, enabled)
+            runOnUiThread {
+                stopService(Intent(this@MainActivity, PushService::class.java))
+                ensurePushService()
+            }
+        }
+
+        @JavascriptInterface
+        fun localPushStatus(): String = org.json.JSONObject()
+            .put("enabled", LocalPushConfig.enabled(this@MainActivity))
+            .put("connectedAt", LocalPushConfig.connectedAt(this@MainActivity))
+            .put("notificationsAllowed", getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled())
+            .toString()
 
         /** 打开本应用的系统设置页（引导用户关电池限制、开自启动）。 */
         @JavascriptInterface
