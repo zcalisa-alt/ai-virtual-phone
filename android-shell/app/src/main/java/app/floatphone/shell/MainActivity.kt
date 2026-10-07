@@ -513,6 +513,7 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun localPushStatus(): String = org.json.JSONObject()
             .put("enabled", LocalPushConfig.enabled(this@MainActivity))
+            .put("deviceId", LocalPushConfig.deviceId(this@MainActivity))
             .put("connectedAt", LocalPushConfig.connectedAt(this@MainActivity))
             .put("notificationsAllowed", getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled())
             .toString()

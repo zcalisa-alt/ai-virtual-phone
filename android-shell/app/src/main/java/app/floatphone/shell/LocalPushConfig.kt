@@ -31,5 +31,6 @@ object LocalPushConfig {
  }
  fun sequence(context:Context)=prefs(context).getLong("sequence",0)
  fun seen(context:Context,sequence:Long){prefs(context).edit().putLong("sequence",sequence).putLong("connectedAt",System.currentTimeMillis()).apply()}
+ fun deviceId(context:Context):String{val p=prefs(context);p.getString("deviceId",null)?.let{return it};val id=java.util.UUID.randomUUID().toString();p.edit().putString("deviceId",id).apply();return id}
  fun connectedAt(context:Context)=prefs(context).getLong("connectedAt",0)
 }
